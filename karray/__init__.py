@@ -8,4 +8,4 @@ __version__ = (0, 1, 0)
 __author__ = 'Carlos Gaete-Morales'
 
 
-from .array import array, from_pandas
+from .array import array, from_pandas, concat

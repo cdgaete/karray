@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 import itertools
-import copy
+from functools import reduce
 
 from .utils import _format_bytes
 
@@ -58,7 +58,7 @@ class array:
         '''
         Returns the index of coo array as a list of tuples.
         '''
-        return list(map(tuple, self._cindex))
+        return list(zip(*self._cindex.T))
 
     @property
     def dindex(self):
@@ -75,6 +75,33 @@ class array:
         ordered_coords = {k:list(np.sort(v)) for k,v in coords.items()}
         cartesian_tuples = list(itertools.product(*list(ordered_coords.values())))
         return cartesian_tuples
+
+    # def _dindex_jit(self, coords):
+    #     arrays = List()
+    #     for v in coords.values():
+    #         arrays.append(np.asarray(v, dtype=np.int16))
+    #     return self.cartesian_jit(arrays)
+
+    # @staticmethod
+    # @nb.njit(cache=True)
+    # def cartesian_jit(arrays):
+    #     n = 1
+    #     for x in arrays:
+    #         n *= x.size
+    #     out = np.zeros((n, len(arrays)), dtype=arrays[0].dtype)
+
+    #     for i in range(len(arrays)):
+    #         m = int(n / arrays[i].size)
+    #         out[:n, i] = np.repeat(arrays[i], m)
+    #         n //= arrays[i].size
+
+    #     n = arrays[-1].size
+    #     for k in range(len(arrays)-2, -1, -1):
+    #         n *= arrays[k].size
+    #         m = int(n / arrays[k].size)
+    #         for j in range(1, arrays[k].size):
+    #             out[j*m:(j+1)*m,k+1:] = out[0:m,k+1:]
+    #     return out
 
     def _check_dims_array_order(self):
         if all([arg is not None for arg in [self.coo, self.dims, self.coords]]):
@@ -93,8 +120,19 @@ class array:
         df = pd.DataFrame(pd.Series(dense.reshape(-1), index=mi, name='value'))
         return df
 
-    def copy(self):
-        return copy.deepcopy(self)
+    # @staticmethod
+    # def reduce_search_area(dindex_arr, cindex_arr):
+    #     i = 0
+    #     indexes = []
+    #     for col_arr in dindex_arr.T:
+    #         keep = np.unique(cindex_arr[:,i])
+    #         indexes.append(np.in1d(col_arr, keep))
+    #         i+=1
+    #     masksum = sum(indexes)
+    #     mask = masksum == max(masksum)
+    #     zone_ix = np.arange(dindex_arr.shape[0], dtype=np.int64)
+    #     zone_nrdindex = zone_ix[mask]
+    #     return zone_nrdindex
 
     def dense(self, dtype='float64'):
         '''
@@ -121,6 +159,26 @@ class array:
         zeros = np.zeros((len(cartesian_tuples),), dtype=dtype)
         zeros[ix_zeros] = values
         return zeros.reshape(self.shape)
+
+
+    # def _dense(self, coo, nrdims, dindex, nrdindex, cindex, shape, dtype='float64'):
+
+    #     dindex_arr = 
+    #     cindex_arr = 
+    #     nr_dindex = self.reduce_search_area(dindex_arr,cindex_arr)
+    #     values = coo[:,nrdims]
+    #     len_dindex = len(dindex)
+    #     len_cindex = len(cindex)
+    #     hshTbl = {}
+    #     ix_zeros = []
+    #     for idx in nrdindex:
+    #         hshTbl[dindex[idx]] = idx
+    #     for icx in nr_dindex:
+    #         if cindex[icx] in hshTbl:
+    #             ix_zeros.append(hshTbl[cindex[icx]])
+    #     zeros = np.zeros((len_dindex,), dtype=dtype)
+    #     zeros[ix_zeros] = values
+    #     return zeros.reshape(shape)
 
     def reorder(self, dims=None):
         '''
@@ -211,6 +269,28 @@ class array:
                 raise Exception(f"Dimension {dim} not found in either array")
         return coords
 
+    # def _int_coords(self, other, dims:list, coords:dict):
+    #     scoo = self.coo.copy()
+    #     ocoo = other.coo.copy()
+    #     int_coords = {}
+    #     for dim in dims:
+    #         int_dim_coords = list(range(len(coords[dim])))
+    #         int_coords[dim] = int_dim_coords
+    #         if dim in self.dims:
+    #             scoo[:,self.dims.index(dim)] = np.array(int_dim_coords)[np.array(coords[dim]).searchsorted(scoo[:,self.dims.index(dim)], sorter=int_dim_coords)]
+    #         if dim in other.dims:
+    #             ocoo[:,other.dims.index(dim)] = np.array(int_dim_coords)[np.array(coords[dim]).searchsorted(ocoo[:,other.dims.index(dim)], sorter=int_dim_coords)]
+    #     return scoo, ocoo, int_coords
+
+    # def _coords_replace(self, coords:dict):
+    #     coo = self.coo.copy()
+    #     for dim in self.dims:
+    #         if dim in coords:
+    #             dim_coords = coords[dim]
+    #             coo[:,self.dims.index(dim)] = np.array(dim_coords)[np.array(self.coords[dim]).searchsorted(coo[:,self.dims.index(dim)], sorter=list(range(len(self.coords[dim]))))]
+    #     return array(coo=coo, dims=self.dims, coords=coords)
+
+
     def _get_dense(self, other, dims, coords, dtype='float64'):
         inv_dims = dims[::-1]
         self_dims = [d for d in inv_dims if d in self.dims]
@@ -230,7 +310,6 @@ class array:
         else:
             preferred_order_ = preferred_order
         if dtype is None:
-            assert self.preferred_dtype == other.preferred_dtype, "'preferred_dtype' attribute must be equal in both arrays"
             dtype_ = self.preferred_dtype or 'float64'
         else:
             dtype_ = dtype
@@ -363,86 +442,6 @@ class array:
         resulting_dense = +self_dense
         return self._post_operation_with_number(resulting_dense)
 
-    def __pow__(self, other):
-        if isinstance(other, (int, float)):
-            self_dense = self._pre_operation_with_number()
-            resulting_dense = self_dense ** other
-            return self._post_operation_with_number(resulting_dense)
-        elif isinstance(other, array):
-            self_dense, other_dense, dims, coords = self._pre_operation_with_array(other)
-            resulting_dense = self_dense ** other_dense
-            return self._post_operation_with_array(resulting_dense, dims, coords)
-
-    def __rpow__(self, other):
-        if isinstance(other, (int, float)):
-            self_dense = self._pre_operation_with_number()
-            resulting_dense = other ** self_dense
-            return self._post_operation_with_number(resulting_dense)
-        elif isinstance(other, array):
-            self_dense, other_dense, dims, coords = self._pre_operation_with_array(other)
-            resulting_dense = other_dense ** self_dense
-            return self._post_operation_with_array(resulting_dense, dims, coords)
-
-    def __lt__(self, other):
-        if isinstance(other, (int, float)):
-            self_dense = self._pre_operation_with_number()
-            resulting_dense = self_dense < other
-            return self._post_operation_with_number(resulting_dense)
-        elif isinstance(other, array):
-            self_dense, other_dense, dims, coords = self._pre_operation_with_array(other)
-            resulting_dense = self_dense < other_dense
-            return self._post_operation_with_array(resulting_dense, dims, coords)
-
-    def __le__(self, other):
-        if isinstance(other, (int, float)):
-            self_dense = self._pre_operation_with_number()
-            resulting_dense = self_dense <= other
-            return self._post_operation_with_number(resulting_dense)
-        elif isinstance(other, array):
-            self_dense, other_dense, dims, coords = self._pre_operation_with_array(other)
-            resulting_dense = self_dense <= other_dense
-            return self._post_operation_with_array(resulting_dense, dims, coords)
-
-    def __gt__(self, other):
-        if isinstance(other, (int, float)):
-            self_dense = self._pre_operation_with_number()
-            resulting_dense = self_dense > other
-            return self._post_operation_with_number(resulting_dense)
-        elif isinstance(other, array):
-            self_dense, other_dense, dims, coords = self._pre_operation_with_array(other)
-            resulting_dense = self_dense > other_dense
-            return self._post_operation_with_array(resulting_dense, dims, coords)
-
-    def __ge__(self, other):
-        if isinstance(other, (int, float)):
-            self_dense = self._pre_operation_with_number()
-            resulting_dense = self_dense >= other
-            return self._post_operation_with_number(resulting_dense)
-        elif isinstance(other, array):
-            self_dense, other_dense, dims, coords = self._pre_operation_with_array(other)
-            resulting_dense = self_dense >= other_dense
-            return self._post_operation_with_array(resulting_dense, dims, coords)
-
-    def __eq__(self, other):
-        if isinstance(other, (int, float)):
-            self_dense = self._pre_operation_with_number()
-            resulting_dense = self_dense == other
-            return self._post_operation_with_number(resulting_dense)
-        elif isinstance(other, array):
-            self_dense, other_dense, dims, coords = self._pre_operation_with_array(other)
-            resulting_dense = self_dense == other_dense
-            return self._post_operation_with_array(resulting_dense, dims, coords)
-
-    def __ne__(self, other):
-        if isinstance(other, (int, float)):
-            self_dense = self._pre_operation_with_number()
-            resulting_dense = self_dense != other
-            return self._post_operation_with_number(resulting_dense)
-        elif isinstance(other, array):
-            self_dense, other_dense, dims, coords = self._pre_operation_with_array(other)
-            resulting_dense = self_dense != other_dense
-            return self._post_operation_with_array(resulting_dense, dims, coords)
-
     def shrink(self, **kwargs):
         '''
         Shrink the array based on the kwargs.
@@ -513,12 +512,13 @@ class array:
         coords[dim] = unique_coords
         return array(coo=coo, dims=self.dims, coords=coords)
 
-    def str2int(self, dim:str=None, use_index:bool=False):
+    def add_dim(self, dim:str, unique_coords:list):
         '''
-        Convert the coordinates of a dimension to integers if the coordinates are numbered strings.
+        Add a new dimension to the array with only one element.
 
         Args:
-            dim (str): the dimension to convert.
+            dim (str): the new dimension name.
+            unique_coords (list): the new coordinates.
 
         Returns:
             a new coo array with the coordinates specified in the kwargs.
@@ -526,8 +526,30 @@ class array:
         Example:
             >>> import karray as ka
             >>> import numpy as np
+            >>> ar = ka.array(coo = np.array([[1,2,3],[4,5,6]]), dims = ['x','y'], coords = {'x':[1,4],'y':[2,5]})
+            >>> ar = ar.add_dim(dim='z', unique_coords=['a'])
+        '''
+        assert dim not in self.dims, "Dimension must not be in dims"
+        assert isinstance(unique_coords, list), "Unique_coords must be a list"
+        assert len(set(unique_coords)) == 1, "Unique_coords length must be 1"
+        coo = np.hstack((np.empty([self.coo.shape[0],1], self.coo.dtype), self.coo))
+        coo[:,0] = unique_coords[0]
+        dims = [dim] + self.dims
+        coords = {}
+        coords[dim] = unique_coords
+        for k,v in self.coords.items():
+            coords[k] = v
+        return array(coo=coo, dims=dims, coords=coords)
+
+    def str2int(self, dim:str=None, use_index:bool=False):
+        '''
+        Convert the coordinates of a dimension to integers if the coordinates are numbered strings.
+
+        Example:
+            >>> import karray as ka
+            >>> import numpy as np
             >>> ar = ka.array(coo = np.array([[1,2,3],[4,5,6]]), dims = ['x','y'], coords = {'x':['a01','a02'],'y':['c','d']})
-            >>> ar = ar.str_to_int(dim='x')
+            >>> ar = ar.str2int(dim='x')
         '''
         assert dim in self.dims, "Dimension must be in dims"
         if use_index:
@@ -541,6 +563,14 @@ class array:
 
 
 
+
+def concat(arrays:list):
+    dims = arrays[0].dims[:]
+    assert all([isinstance(arr, array) for arr in arrays]), "All list items must be karray.array"
+    assert all([set(arr.dims) == set(dims) for arr in arrays]), "All array must have the same dimensions"
+    coo = np.vstack([arr.coo for arr in arrays])
+    coords = reduce(lambda x,y: array(x.coo, x.dims, x._union_coords(y,x.dims)), arrays).coords
+    return array(coo=coo,dims=dims,coords=coords)
 
 
 def from_pandas(df, dims: list=None):
@@ -579,4 +609,4 @@ def from_pandas(df, dims: list=None):
         dt = dt[dims]
         dt.insert(len(dt.columns), col.name, col)
         coo = dt.to_numpy()
-    return array(coo, dims, coords)
+    return array(coo=coo,dims=dims,coords=coords)
