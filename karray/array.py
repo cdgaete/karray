@@ -1,23 +1,38 @@
 
 import numpy as np
 import pandas as pd
-import itertools
+import numba as nb
+from numba.typed import List
 from functools import reduce
+from itertools import product
 
-from .utils import _format_bytes
+from .utils import _format_bytes, _parallelize
+from multiprocessing import cpu_count, Pool
 
 
 class array:
     """
     A class for labelled multidimensional arrays.
     """
-    def __init__(self, coo:np.array=None, dims:list=None, coords:dict=None, **kwargs):
+    def __init__(self, coo:np.array=None, dims:list=None, coords:dict=None, dtype=np.float64, order=None, **kwargs):
+        '''
+        Initialize a karray.
+        
+        Args:
+            coo (np.array): a coo array.
+            dims (list): list of dimension names.
+            coords (dict): dictionary of coordinates.
+            kwargs: keyword arguments for the array. Options are: 
+                    dtype (str) for resulting dense array, 
+                    order (list of strings) for prefered order of dims if they are in the coo array.
+        '''
         self.coo = coo
         self.dims = dims
-        self.coords = coords
-        self._check_dims_array_order()
-        self.preferred_dtype = None
-        self.preferred_order = None
+        self.coords = None
+        self.dtype = dtype
+        self.order = order
+        self._check_input(coords)
+        self._dense_ = None
         return None
 
     def __repr__(self):
@@ -41,6 +56,27 @@ class array:
 
     def __str__(self):
         pass
+
+    def _add_coords(self):
+        self.coords = {}
+        for i, dim in enumerate(self.dims):
+            self.coords[dim] = list(np.sort(np.unique(self.coo[:,i])))
+
+
+    def _check_input(self, coords):
+        assert all([arg is not None for arg in [self.coo, self.dims, self.dtype]]), "coo, dims and dtype must be defined"
+        assert isinstance(self.coo, np.ndarray), "coo must be a numpy array"
+        assert isinstance(self.dims, list), "dims must be a list"
+        if coords is None:
+            print("coords is None. self.coords has been generated from coo and dims.")
+            self._add_coords()
+        else:
+            assert isinstance(coords, dict), "coords must be a dictionary"
+            self.coords = coords
+            assert len(self.dims) == len(self.coords), "Length of dims and coords must be equal"
+            assert all([all(np.sort(np.unique(arr)) == np.sort(arr)) for arr in self.coords.values()]), "Coordinates must be unique."
+            for i in range(len(self.dims)):
+                assert set(self._cindex.T[i]).issubset(self.coords[self.dims[i]]), f"All elements of coo array must be included in coords for dim: {self.dims[i]}."
 
     @property
     def shape(self):
@@ -67,74 +103,15 @@ class array:
         '''
         return self._dindex(self.coords)
 
-    @staticmethod
-    def _dindex(coords):
+    # TODO: This function needs to be optimized.
+    def _dindex(self, coords):
         '''
         Returns the index of dense array as a list of tuples.
         '''
-        ordered_coords = {k:list(np.sort(v)) for k,v in coords.items()}
-        cartesian_tuples = list(itertools.product(*list(ordered_coords.values())))
-        return cartesian_tuples
+        return sorted(product(*list(coords.values())))
 
-    # def _dindex_jit(self, coords):
-    #     arrays = List()
-    #     for v in coords.values():
-    #         arrays.append(np.asarray(v, dtype=np.int16))
-    #     return self.cartesian_jit(arrays)
-
-    # @staticmethod
-    # @nb.njit(cache=True)
-    # def cartesian_jit(arrays):
-    #     n = 1
-    #     for x in arrays:
-    #         n *= x.size
-    #     out = np.zeros((n, len(arrays)), dtype=arrays[0].dtype)
-
-    #     for i in range(len(arrays)):
-    #         m = int(n / arrays[i].size)
-    #         out[:n, i] = np.repeat(arrays[i], m)
-    #         n //= arrays[i].size
-
-    #     n = arrays[-1].size
-    #     for k in range(len(arrays)-2, -1, -1):
-    #         n *= arrays[k].size
-    #         m = int(n / arrays[k].size)
-    #         for j in range(1, arrays[k].size):
-    #             out[j*m:(j+1)*m,k+1:] = out[0:m,k+1:]
-    #     return out
-
-    def _check_dims_array_order(self):
-        if all([arg is not None for arg in [self.coo, self.dims, self.coords]]):
-            assert len(self.dims) == len(self.coords), "dims and coords must be equal"
-            assert all([all(np.sort(np.unique(arr)) == np.sort(arr)) for arr in self.coords.values()]), "Coordinates must be unique."
-            for i in range(len(self.dims)):
-                assert set(self._cindex.T[i]).issubset(self.coords[self.dims[i]]), "All elements of index must be included in coords."
-        elif any([arg is not None for arg in [self.coo, self.dims, self.coords]]):
-            raise ValueError("coo, dims and coords must be all provided.")
-        else:
-            pass
-
-    def to_dataframe(self, dtype='float64'):
-        dense = self.dense(dtype=dtype)
-        mi = pd.MultiIndex.from_tuples(self.dindex, names=self.dims)
-        df = pd.DataFrame(pd.Series(dense.reshape(-1), index=mi, name='value'))
-        return df
-
-    # @staticmethod
-    # def reduce_search_area(dindex_arr, cindex_arr):
-    #     i = 0
-    #     indexes = []
-    #     for col_arr in dindex_arr.T:
-    #         keep = np.unique(cindex_arr[:,i])
-    #         indexes.append(np.in1d(col_arr, keep))
-    #         i+=1
-    #     masksum = sum(indexes)
-    #     mask = masksum == max(masksum)
-    #     zone_ix = np.arange(dindex_arr.shape[0], dtype=np.int64)
-    #     zone_nrdindex = zone_ix[mask]
-    #     return zone_nrdindex
-
-    def dense(self, dtype='float64'):
+    # TODO: This function needs to be optimized.
+    def dense(self, dtype=np.float64):
         '''
         Return a dense version of the array based on the coords.
         
@@ -160,26 +137,6 @@ class array:
         zeros[ix_zeros] = values
         return zeros.reshape(self.shape)
 
-
-    # def _dense(self, coo, nrdims, dindex, nrdindex, cindex, shape, dtype='float64'):
-
-    #     dindex_arr = 
-    #     cindex_arr = 
-    #     nr_dindex = self.reduce_search_area(dindex_arr,cindex_arr)
-    #     values = coo[:,nrdims]
-    #     len_dindex = len(dindex)
-    #     len_cindex = len(cindex)
-    #     hshTbl = {}
-    #     ix_zeros = []
-    #     for idx in nrdindex:
-    #         hshTbl[dindex[idx]] = idx
-    #     for icx in nr_dindex:
-    #         if cindex[icx] in hshTbl:
-    #             ix_zeros.append(hshTbl[cindex[icx]])
-    #     zeros = np.zeros((len_dindex,), dtype=dtype)
-    #     zeros[ix_zeros] = values
-    #     return zeros.reshape(shape)
-
     def reorder(self, dims=None):
         '''
         Reorder the array based on the dims.
@@ -191,14 +148,14 @@ class array:
             coo array, dims and coords are reordered.
         '''
         if dims is None:
-            return array(coo=self.coo, dims=self.dims, coords=self.coords)
+            return array(coo=self.coo, dims=self.dims, coords=self.coords, dtype=self.dtype, order=self.order)
         else:
             assert set(dims) == set(self.dims), "dims must be equal to self.dims"
             coords = {k:self.coords[k] for k in dims}
             dorder = [self.dims.index(d) for d in dims]
             dim_order = dorder + [len(dorder)]
             coo = self.coo.T[dim_order].T
-            return array(coo=coo, dims=dims, coords=coords)
+            return array(coo=coo, dims=dims, coords=coords, dtype=self.dtype, order=self.order)
 
     @staticmethod
     def _order_with_preference(dims:list, preferred_order:list=None):
@@ -255,7 +212,6 @@ class array:
         '''
         Returns the union of the coords of two arrays.
         '''
-
         coords = {}
         for dim in dims:
             if dim in self.coords:
@@ -269,104 +225,57 @@ class array:
                 raise Exception(f"Dimension {dim} not found in either array")
         return coords
 
-    # def _int_coords(self, other, dims:list, coords:dict):
-    #     scoo = self.coo.copy()
-    #     ocoo = other.coo.copy()
-    #     int_coords = {}
-    #     for dim in dims:
-    #         int_dim_coords = list(range(len(coords[dim])))
-    #         int_coords[dim] = int_dim_coords
-    #         if dim in self.dims:
-    #             scoo[:,self.dims.index(dim)] = np.array(int_dim_coords)[np.array(coords[dim]).searchsorted(scoo[:,self.dims.index(dim)], sorter=int_dim_coords)]
-    #         if dim in other.dims:
-    #             ocoo[:,other.dims.index(dim)] = np.array(int_dim_coords)[np.array(coords[dim]).searchsorted(ocoo[:,other.dims.index(dim)], sorter=int_dim_coords)]
-    #     return scoo, ocoo, int_coords
-
-    # def _coords_replace(self, coords:dict):
-    #     coo = self.coo.copy()
-    #     for dim in self.dims:
-    #         if dim in coords:
-    #             dim_coords = coords[dim]
-    #             coo[:,self.dims.index(dim)] = np.array(dim_coords)[np.array(self.coords[dim]).searchsorted(coo[:,self.dims.index(dim)], sorter=list(range(len(self.coords[dim]))))]
-    #     return array(coo=coo, dims=self.dims, coords=coords)
-
-
-    def _get_dense(self, other, dims, coords, dtype='float64'):
+    def _get_dense(self, dims, coords):
         inv_dims = dims[::-1]
         self_dims = [d for d in inv_dims if d in self.dims]
         self_coords = {d:coords[d] for d in self_dims}
         self_coo_ordered_array = self.reorder(self_dims)
-        self_array = array(coo=self_coo_ordered_array.coo, dims=self_dims, coords=self_coords)
-        other_dims = [d for d in inv_dims if d in other.dims]
-        other_coords = {d:coords[d] for d in other_dims}
-        other_coo_ordered_array = other.reorder(other_dims)
-        other_array = array(coo=other_coo_ordered_array.coo, dims=other_dims, coords=other_coords)
-        return self_array.dense(dtype), other_array.dense(dtype)
+        self_array = array(coo=self_coo_ordered_array.coo, dims=self_dims, coords=self_coords, dtype=self.dtype, order=self.order)
+        return self_array.dense(self_array.dtype)
 
-    def _pre_operation_with_array(self, other, preferred_order: list = None, dtype=None):
-        if preferred_order is None:
-            assert self.preferred_order == other.preferred_order, "'preferred_order' attribute must be equal in both arrays"
-            preferred_order_ = self.preferred_order
-        else:
-            preferred_order_ = preferred_order
-        if dtype is None:
-            dtype_ = self.preferred_dtype or 'float64'
-        else:
-            dtype_ = dtype
-
-        dims = self._union_dims(other, preferred_order_)
+    def _pre_operation_with_array(self, other):
+        assert self.order == other.order, "'order' attribute must be equal in both arrays"
+        assert self.dtype == other.dtype, "'dtype' attribute must be equal in both arrays"
+        dims = self._union_dims(other, self.order)
         coords = self._union_coords(other, dims)
-        self_dense, other_dense = self._get_dense(other, dims, coords, dtype_)
-        return self_dense, other_dense, dims, coords
 
-    def _pre_operation_with_number(self, dtype=None):
-        if dtype is None:
-            dtype_ = self.preferred_dtype or 'float64'
+        if self._dense_ is None:
+            self._dense_ = self._get_dense(dims, coords)
         else:
-            dtype_ = dtype
+            self_dims = [d for d in dims if d in self.dims]
+            self_coords = {d:coords[d] for d in self_dims}
+            if self.coords != self_coords:
+                self._dense_ = self._get_dense(dims, coords)
 
-        self_dense = self.dense(dtype_)
+        if other._dense_ is None:
+            other._dense_ = other._get_dense(dims, coords)
+        else:
+            other_dims = [d for d in dims if d in other.dims]
+            other_coords = {d:coords[d] for d in other_dims}
+            if other.coords != other_coords:
+                other._dense_ = other._get_dense(dims, coords)
+
+        return self._dense_, other._dense_, dims, coords
+
+    def _pre_operation_with_number(self):
+        self_dense = self.dense(self.dtype)
         return self_dense
 
-    def _post_operation_with_array(self, resulting_dense, dims, coords, preferred_order: list = None, dtype=None):
-        if preferred_order is None:
-            preferred_order_ = self.preferred_order
-        else:
-            preferred_order_ = preferred_order
-
-        if dtype is None:
-            dtype_ = self.preferred_dtype or 'float64'
-        else:
-            dtype_ = dtype
-
+    def _post_operation_with_array(self, resulting_dense, dims, coords):
         dim_reverse = dims[::-1]
         coords_reverse = {dim:coords[dim] for dim in dim_reverse}
         coo_dense = np.hstack([np.array(self._dindex(coords_reverse), dtype=object), resulting_dense.reshape(resulting_dense.size,1)])
         coo = coo_dense[coo_dense[:,-1] != 0]
-        inv_array = array(coo = coo, dims = dim_reverse,  coords = coords_reverse)
-        inv_array.preferred_order = preferred_order_
-        inv_array.preferred_dtype = dtype_
-        dims = self._order_with_preference(dims=dims, preferred_order=preferred_order_)
-        arr = inv_array.reorder(dims)
-        return arr
+        inv_array = array(coo = coo, dims = dim_reverse,  coords = coords_reverse, dtype=self.dtype, order=self.order)
+        dims = self._order_with_preference(dims=dims, preferred_order=self.order)
+        return inv_array.reorder(dims)
 
-    def _post_operation_with_number(self, resulting_dense, preferred_order: list = None, dtype=None):
-        if preferred_order is None:
-            preferred_order_ = self.preferred_order
-        else:
-            preferred_order_ = preferred_order
-
-        if dtype is None:
-            dtype_ = self.preferred_dtype or 'float64'
-        else:
-            dtype_ = dtype
-
+    def _post_operation_with_number(self, resulting_dense):
         coo_dense = np.hstack([np.array(self._dindex(self.coords), dtype=object), resulting_dense.reshape(resulting_dense.size,1)])
         coo = coo_dense[coo_dense[:,-1] != 0]
-        arr = array(coo = coo, dims = self.dims,  coords = self.coords)
-        arr.preferred_order = preferred_order_
-        arr.preferred_dtype = dtype_
-        return arr
+        new_array = array(coo = coo, dims = self.dims,  coords = self.coords, dtype=self.dtype, order=self.order)
+        dims = new_array._order_with_preference(dims=new_array.dims, preferred_order=new_array.order)
+        return new_array.reorder(dims)
 
     def __add__(self, other):
         if isinstance(other, (int, float)):
@@ -442,6 +351,12 @@ class array:
         resulting_dense = +self_dense
         return self._post_operation_with_number(resulting_dense)
 
+    def to_dataframe(self, dtype=np.float64):
+        dense = self.dense(dtype=dtype)
+        mi = pd.MultiIndex.from_tuples(self.dindex, names=self.dims)
+        df = pd.DataFrame(pd.Series(dense.reshape(-1), index=mi, name='value'))
+        return df
+
     def shrink(self, **kwargs):
         '''
         Shrink the array based on the kwargs.
@@ -482,7 +397,7 @@ class array:
         masksum = sum(indexes)
         mask = masksum == max(masksum)
         coo = self.coo[mask]
-        return array(coo=coo, dims=self.dims, coords=new_coords)
+        return array(coo=coo, dims=self.dims, coords=new_coords, dtype=self.dtype, order=self.order)
 
     def coords_replace(self, dim:str=None, unique_coords:list=None):
         '''
@@ -510,7 +425,7 @@ class array:
         coo[:,self.dims.index(dim)] = np.array(unique_coords)[np.array(self.coords[dim]).searchsorted(coo[:,self.dims.index(dim)], sorter=list(range(len(self.coords[dim]))))]
         coords = {k:v for k,v in self.coords.items()}
         coords[dim] = unique_coords
-        return array(coo=coo, dims=self.dims, coords=coords)
+        return array(coo=coo, dims=self.dims, coords=coords, dtype=self.dtype, order=self.order)
 
     def add_dim(self, dim:str, unique_coords:list):
         '''
@@ -539,7 +454,7 @@ class array:
         coords[dim] = unique_coords
         for k,v in self.coords.items():
             coords[k] = v
-        return array(coo=coo, dims=dims, coords=coords)
+        return array(coo=coo, dims=dims, coords=coords, dtype=self.dtype, order=self.order)
 
     def str2int(self, dim:str=None, use_index:bool=False):
         '''
@@ -560,20 +475,139 @@ class array:
         return self.coords_replace(dim=dim, unique_coords=int_coords)
 
 
+    ########## Methods for converting arrays to all integers ##########
+    def _dindex_jit(self, coords):
+        arrays = []
+        rng = List()
+        point = 0
+        for v in coords.values():
+            # arrays.append(np.asarray(v, dtype=np.unicode_))
+            arrays.append(np.asarray(v, dtype=np.int16))
+            rng.append(point)
+            point += len(v)
+        rng.append(point)
+        arr = np.concatenate(arrays)
+        return self.cartesian_jit(arr, rng)
+    
+    @staticmethod
+    @nb.jit(nopython=True, cache=True, parallel=True)
+    def cartesian_jit(arr, rng):
+        arrays = List()
+        for i in range(len(rng)-1):
+            arrays.append(arr[rng[i]:rng[i+1]])
+
+        n = 1
+        for x in arrays:
+            n *= x.size
+        out = np.zeros((n, len(arrays)), dtype=arrays[0].dtype)
+
+        for i in range(len(arrays)):
+            m = int(n / arrays[i].size)
+            out[:n, i] = np.repeat(arrays[i], m)
+            n //= arrays[i].size
+
+        n = arrays[-1].size
+        for k in range(len(arrays)-2, -1, -1):
+            n *= arrays[k].size
+            m = int(n / arrays[k].size)
+            for j in nb.prange(1, arrays[k].size):
+                out[j*m:(j+1)*m,k+1:] = out[0:m,k+1:]
+        return out
+
+    def _int_coords(self, commondims:list, commoncoords:dict, other=None):
+        scoo = self.coo.copy()
+        if other is not None:
+            ocoo = other.coo.copy()
+        int_coords = {}
+        for dim in commondims:
+            int_dim_coords = list(range(len(commoncoords[dim])))
+            int_coords[dim] = int_dim_coords
+            if dim in self.dims:
+                scoo[:,self.dims.index(dim)] = np.array(int_dim_coords)[np.array(commoncoords[dim]).searchsorted(scoo[:,self.dims.index(dim)], sorter=int_dim_coords)]
+            if other is not None and dim in other.dims:
+                ocoo[:,other.dims.index(dim)] = np.array(int_dim_coords)[np.array(commoncoords[dim]).searchsorted(ocoo[:,other.dims.index(dim)], sorter=int_dim_coords)]
+        if other is not None:
+            return scoo, ocoo, int_coords
+        return scoo, int_coords
+
+    def _coords_replace(self, coords:dict):
+        coo = self.coo.copy()
+        for dim in self.dims:
+            if dim in coords:
+                dim_coords = coords[dim]
+                coo[:,self.dims.index(dim)] = np.array(dim_coords)[np.array(self.coords[dim]).searchsorted(coo[:,self.dims.index(dim)], sorter=list(range(len(self.coords[dim]))))]
+        return array(coo=coo, dims=self.dims, coords=coords, dtype=self.dtype, order=self.order)
+
+    def all_int(self):
+        '''
+        Returns an array with all coordinates integers.
+        '''
+        coo, int_coords = self._int_coords(commondims=self.dims, commoncoords=self.coords)
+        int_array = array(coo=coo, dims=self.dims, coords=int_coords, dtype=self.dtype, order=self.order)
+        return int_array._coords_replace(int_array.coords)
+
+    @staticmethod
+    def reduce_search_area(dindex_arr, cindex_arr):
+        i = 0
+        indexes = []
+        for col_arr in dindex_arr.T:
+            keep = np.unique(cindex_arr[:,i])
+            indexes.append(~isin_nb(col_arr, keep))
+            i+=1
+        masksum = sum(indexes)
+        mask = masksum == max(masksum)
+        zone_ix = np.arange(dindex_arr.shape[0], dtype=np.int64)
+        zone_nrdindex = zone_ix[mask]
+        return zone_nrdindex
+
+    def _dense(self, dtype='float64'):
+        values = self.coo[:,len(self.dims)]
+        _dindex = self._dindex_jit(self.coords)
+        _cindex = self._cindex.astype(np.int16)
+        dindex_rng = self.reduce_search_area(_dindex, _cindex)
+        
+        cartesian_tuples = self.dindex
+        hshTbl = {}
+        ix_zeros = []
+        for idx in dindex_rng:
+            hshTbl[cartesian_tuples[idx]] = idx
+        for bi in self.cindex:
+            if bi in hshTbl:
+                ix_zeros.append(hshTbl[bi])
+        zeros = np.zeros((len(cartesian_tuples),), dtype=dtype)
+        zeros[ix_zeros] = values
+        return zeros.reshape(self.shape)
+
+    def idense(self, dtype=np.float64):
+        '''
+        Returns dense array with method that convert the array to integer.
+        '''
+        arr = self.all_int()
+        return arr._dense(dtype=dtype)
+
+
+
+
+
+
 
 
 
 
 def concat(arrays:list):
     dims = arrays[0].dims[:]
+    dtype = arrays[0].dtype
+    order = arrays[0].order
     assert all([isinstance(arr, array) for arr in arrays]), "All list items must be karray.array"
     assert all([set(arr.dims) == set(dims) for arr in arrays]), "All array must have the same dimensions"
+    assert all([arr.dtype == dtype for arr in arrays]), "All array must have the same dtype"
     coo = np.vstack([arr.coo for arr in arrays])
-    coords = reduce(lambda x,y: array(x.coo, x.dims, x._union_coords(y,x.dims)), arrays).coords
-    return array(coo=coo,dims=dims,coords=coords)
+    coords = reduce(lambda x,y: array(coo=x.coo, dims=x.dims, coords=x._union_coords(y,x.dims), dtype=x.dtype, order=x.order), arrays).coords
+    return array(coo=coo, dims=dims, coords=coords, dtype=arrays[0].dtype, order=arrays[0].order)
 
 
-def from_pandas(df, dims: list=None):
+def from_pandas(df, dims: list=None, dtype=np.float64, order=None):
+    #TODO Sort dataframe index first of all and verify the consistency with the resulted array
     assert 'value' in df.columns, "Dataframe must have a 'value' column"
     if dims is None:
         if len(df.columns) == 1:
@@ -609,4 +643,43 @@ def from_pandas(df, dims: list=None):
         dt = dt[dims]
         dt.insert(len(dt.columns), col.name, col)
         coo = dt.to_numpy()
-    return array(coo=coo,dims=dims,coords=coords)
+    return array(coo=coo,dims=dims,coords=coords, dtype=dtype, order=order)
+
+
+
+@nb.njit(parallel=True)
+def in1d_vec_nb(matrix, index_to_remove):
+    #matrix and index_to_remove have to be numpy arrays
+    #if index_to_remove is a list with different dtypes this 
+    #function will fail
+    out=np.empty(matrix.shape[0],dtype=nb.boolean)
+    index_to_remove_set=set(index_to_remove)
+    for i in nb.prange(matrix.shape[0]):
+        if matrix[i] in index_to_remove_set:
+            out[i]=False
+        else:
+            out[i]=True
+    return out
+
+@nb.njit(parallel=True)
+def in1d_scal_nb(matrix, index_to_remove):
+    #matrix and index_to_remove have to be numpy arrays
+    #if index_to_remove is a list with different dtypes this 
+    #function will fail
+    out=np.empty(matrix.shape[0],dtype=nb.boolean)
+    for i in nb.prange(matrix.shape[0]):
+        if (matrix[i] == index_to_remove):
+            out[i]=False
+        else:
+            out[i]=True
+    return out
+
+def isin_nb(matrix_in, index_to_remove):
+    #both matrix_in and index_to_remove have to be a np.ndarray
+    #even if index_to_remove is actually a single number
+    shape=matrix_in.shape
+    if index_to_remove.shape==():
+        res=in1d_scal_nb(matrix_in.reshape(-1),index_to_remove.take(0))
+    else:
+        res=in1d_vec_nb(matrix_in.reshape(-1),index_to_remove)
+    return res.reshape(shape)

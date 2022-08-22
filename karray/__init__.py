@@ -9,3 +9,4 @@ __author__ = 'Carlos Gaete-Morales'
 
 
 from .array import array, from_pandas, concat
+from .utils import _parallelize
