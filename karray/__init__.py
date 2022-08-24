@@ -8,5 +8,5 @@ __version__ = (0, 1, 0)
 __author__ = 'Carlos Gaete-Morales'
 
 
-from .array import array, from_pandas, concat
+from .array import array, from_pandas, from_feather, concat
 from .utils import _parallelize

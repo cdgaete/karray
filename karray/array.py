@@ -1,6 +1,9 @@
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.feather as ft
+import json
 from functools import reduce
 from itertools import product
 from .utils import _format_bytes
@@ -10,7 +13,7 @@ class array:
     """
     A class for labelled multidimensional arrays.
     """
-    def __init__(self, coo:np.array=None, dims:list=None, coords:dict=None, dtype=np.float64, order=None, **kwargs):
+    def __init__(self, coo:np.array=None, dims:list=None, coords:dict=None, dtype:str='float64', order:list=None, dense:np.array=None, cindex:list=None, dindex:list=None, **kwargs):
         '''
         Initialize a karray.
         
@@ -29,6 +32,9 @@ class array:
         self.dtype = dtype
         self.order = order
         self._check_input(coords)
+        self.dense_ = dense
+        self.cindex_ = cindex
+        self.dindex_ = dindex
         oredered_dims = self._order_with_preference(self.dims, self.order)
         ordered_dict = self._reorder(self.coo, self.dims, self.coords, oredered_dims)
         self.coo = ordered_dict['coo']
@@ -36,41 +42,16 @@ class array:
         self.coords = ordered_dict['coords']
         return None
 
-    def __setattr__(self, name, value):
-        self._repo[name] = value
-
-    def __getattr__(self, name):
-        if name == "cindex_":
-            if name in self._repo:
-                return self._repo[name]
-            else:
-                self._repo[name] = self.cindex()
-                return self._repo[name]
-        elif name == "dindex_":
-            if name in self._repo:
-                return self._repo[name]
-            else:
-                self._repo[name] = self.dindex()
-                return self._repo[name]
-        elif name == "dense_":
-            if name in self._repo:
-                return self._repo[name]
-            else:
-                self._repo[name] = self.dense()
-                return self._repo[name]
-        else:
-            return self._repo[name]
-
-    def __repr__(self):
-        return f"Karray.array(coo, coords, dims)"
-
     def _repr_html_(self):
-        if all([arg is not None for arg in [self.coo, self.dims, self.coords]]):
+        if all([arg is not None for arg in [self._repo['coo'], self._repo['dims'], self._repo['coords']]]):
+            coo_nbytes = _format_bytes(self._repo['coo'].nbytes)
+            dims = self._repo['dims']
+            shape = self.shape
             return ('<h3>karray</h3>'
                 '<table>'
-                f'<tr><th>coo</th><td>size: {_format_bytes(self.coo.nbytes)}</td></tr>'
-                f'<tr><th>dims</th><td>{self.dims}</td></tr>'
-                f'<tr><th>coords</th><td>shape {self.shape}</td></tr>'
+                f'<tr><th>coo</th><td>size: {coo_nbytes}</td></tr>'
+                f'<tr><th>dims</th><td>{dims}</td></tr>'
+                f'<tr><th>coords</th><td>shape {shape}</td></tr>'
                 '</table>')
         else:
             return ('<h3>karray</h3>'
@@ -80,8 +61,38 @@ class array:
                 '<tr><th>coords</th><td>None</td></tr>'
                 '</table>')
 
-    def __str__(self):
-        pass
+    def __setattr__(self, name, value):
+        self._repo[name] = value
+
+    def __getattr__(self, name):
+        if name.startswith('_'):
+            raise AttributeError(name)
+        if name == "cindex_":
+            if name in self._repo:
+                if self._repo[name] is None:
+                    self._repo[name] = self.cindex()
+                    return self._repo[name]
+                else:
+                    return self._repo[name]
+        elif name == "dindex_":
+            if name in self._repo:
+                if self._repo[name] is None:
+                    self._repo[name] = self.dindex()
+                    return self._repo[name]
+                else:
+                    return self._repo[name]
+        elif name == "dense_":
+            if name in self._repo:
+                if self._repo[name] is None:
+                    self._repo[name] = self.dense()
+                    return self._repo[name]
+                else:
+                    return self._repo[name]
+        else:
+            return self._repo[name]
+
+    def __repr__(self):
+        return f"Karray.array(coo, dims, coords)"
 
     def _add_coords(self):
         self.coords = {}
@@ -134,7 +145,7 @@ class array:
         return sorted(product(*list(coords.values())))
 
     # TODO: This function needs to be optimized.
-    def dense(self, dtype=np.float64):
+    def dense(self, dtype='float64'):
         '''
         Return a dense version of the array based on the coords.
         
@@ -174,7 +185,6 @@ class array:
         assert set(order) == set(self_dim), "order must be equal to self.dims, the order can be different, though"
         if self_dim == order:
             return dict(coo=self_coo, dims=self_dim, coords=self_coords)
-
         coords = {k:self_coords[k] for k in order}
         dorder = [self_dim.index(d) for d in order]
         dim_order = dorder + [len(dorder)]
@@ -278,10 +288,11 @@ class array:
 
     def _post_operation_with_array(self, resulting_dense, dims, coords):
         dense = resulting_dense.T
-        coo_dense = np.hstack([np.array(self._dindex(coords), dtype=object), dense.reshape(dense.size,1)])
+        dindex = self._dindex(coords)
+        coo_dense = np.hstack([np.array(dindex, dtype=object), dense.reshape(dense.size,1)])
         coo_dense = coo_dense[coo_dense[:,-1] != 0]
         coo = coo_dense[coo_dense[:,-1] != np.nan]
-        return array(coo=coo, dims=dims, coords=coords, dtype=self.dtype, order=self.order)
+        return array(coo=coo, dims=dims, coords=coords, dtype=self.dtype, order=self.order, dense=dense, dindex=dindex)
 
     def _post_operation_with_number(self, resulting_dense):
         coo_dense = np.hstack([self.coo[:,range(len(self.dims))], resulting_dense.reshape(resulting_dense.size,1)])
@@ -367,6 +378,30 @@ class array:
         mi = pd.MultiIndex.from_tuples(self.dindex_, names=self.dims)
         df = pd.DataFrame(pd.Series(self.dense_.reshape(-1), index=mi, name='value'))
         return df
+
+    def to_arrow(self):
+        '''
+        Returns an Arrow table with custom metadata with a metadata key 'karray' that can be obtained by deserializing with json
+
+        See also karray.from_feather(path)
+        '''
+        table = pa.Table.from_pandas(pd.DataFrame(self.coo))
+        existing_meta = table.schema.metadata
+        custom_meta_key = 'karray'
+        custom_metadata = {}
+        attr = ['dims', 'coords', 'dtype','order']
+        for k,v in self._repo.items():
+            if k in attr:
+                custom_metadata[k] = v
+        custom_meta_json = json.dumps(custom_metadata)
+        existing_meta = table.schema.metadata
+        combined_meta = {custom_meta_key.encode() : custom_meta_json.encode(),**existing_meta}
+        return table.replace_schema_metadata(combined_meta)
+
+    def to_feather(self, path):
+        table = self.to_arrow()
+        ft.write_feather(table, path)
+        return None
 
     def shrink(self, **kwargs):
         '''
@@ -520,62 +555,6 @@ class array:
         coo_ = self._coords_replace(coo=coo, dims=obj.dims, coords=int_coords)
         return array(coo=coo_, dims=obj.dims, coords=int_coords, dtype=obj.dtype, order=obj.order)
 
-    # @staticmethod
-    # @nb.jit(nopython=True, cache=True, parallel=True)
-    # def cartesian_jit(arr, rng):
-    #     arrays = List()
-    #     for i in range(len(rng)-1):
-    #         arrays.append(arr[rng[i]:rng[i+1]])
-
-    #     n = 1
-    #     for x in arrays:
-    #         n *= x.size
-    #     out = np.zeros((n, len(arrays)), dtype=arrays[0].dtype)
-
-    #     for i in range(len(arrays)):
-    #         m = int(n / arrays[i].size)
-    #         out[:n, i] = np.repeat(arrays[i], m)
-    #         n //= arrays[i].size
-
-    #     n = arrays[-1].size
-    #     for k in range(len(arrays)-2, -1, -1):
-    #         n *= arrays[k].size
-    #         m = int(n / arrays[k].size)
-    #         for j in nb.prange(1, arrays[k].size):
-    #             out[j*m:(j+1)*m,k+1:] = out[0:m,k+1:]
-    #     return out
-
-    # def _dindex_jit(self, coords):
-    #     arrays = []
-    #     rng = List()
-    #     point = 0
-    #     for v in coords.values():
-    #         arrays.append(np.asarray(v, dtype=np.int16))
-    #         rng.append(point)
-    #         point += len(v)
-    #     rng.append(point)
-    #     arr = np.concatenate(arrays)
-    #     return self.cartesian_jit(arr, rng)
-
-    # @staticmethod
-    # def reduce_search_area(dindex_arr, cindex_arr):
-    #     i = 0
-    #     indexes = []
-    #     for col_arr in dindex_arr.T:
-    #         keep = np.unique(cindex_arr[:,i])
-    #         indexes.append(~isin_nb(col_arr, keep))
-    #         i+=1
-    #     masksum = sum(indexes)
-    #     mask = masksum == max(masksum)
-    #     zone_ix = np.arange(dindex_arr.shape[0], dtype=np.int64)
-    #     zone_nrdindex = zone_ix[mask]
-    #     return zone_nrdindex
-
-
-
-
-
-
 
 
 def concat(arrays:list):
@@ -590,7 +569,7 @@ def concat(arrays:list):
     return array(coo=coo, dims=dims, coords=coords, dtype=arrays[0].dtype, order=arrays[0].order)
 
 
-def from_pandas(df, dims: list=None, dtype=np.float64, order=None):
+def from_pandas(df, dims: list=None, dtype:str='float64', order=None):
     #TODO Sort dataframe index first of all and verify the consistency with the resulted array
     assert 'value' in df.columns, "Dataframe must have a 'value' column"
     if dims is None:
@@ -616,19 +595,30 @@ def from_pandas(df, dims: list=None, dtype=np.float64, order=None):
             coords[dim] = list(np.sort(df[dim].unique()))
 
     if len(df.columns) == 1:
-        dt = df[df['value'] != 0].reset_index()
+        df = df[df['value'] != 0]
+        dt = df[df['value'] != np.nan].reset_index()
         col = dt.pop("value")
         dt = dt[dims]
         dt.insert(len(dt.columns), col.name, col)
         coo = dt.to_numpy()
     else:
-        dt = df[df['value'] != 0]
+        df = df[df['value'] != 0]
+        dt = df[df['value'] != np.nan]
         col = dt.pop("value")
         dt = dt[dims]
         dt.insert(len(dt.columns), col.name, col)
         coo = dt.to_numpy()
     return array(coo=coo,dims=dims,coords=coords, dtype=dtype, order=order)
 
+def from_feather(path, with_table=False):
+    restored_table = ft.read_table(path)
+    custom_meta_key = 'karray'
+    restored_meta_json = restored_table.schema.metadata[custom_meta_key.encode()]
+    restored_meta = json.loads(restored_meta_json)
+    coo = restored_table.to_pandas().to_numpy()
+    if with_table:
+        return array(coo=coo, **restored_meta), restored_table
+    return array(coo=coo, **restored_meta)
 
 
 # @nb.njit(parallel=True)
