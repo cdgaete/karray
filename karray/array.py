@@ -259,7 +259,7 @@ class array:
             elif dim in other.coords:
                 coords[dim] = other.coords[dim]
             else:
-                raise Exception(f"Dimension {dim} not found in either array")
+                raise Exception(f"Dimension {dim} not found in either arrays")
         return coords
 
     @staticmethod
@@ -526,34 +526,45 @@ class array:
 
     ########## Methods for converting arrays to all integers ##########
 
-    @staticmethod
-    def _int_coords(obj, commondims:list, commoncoords:dict):
-        scoo = obj.coo.copy()
+    def _int_coords(self):
+        coo = self.coo.copy()
 
         int_coords = {}
-        for dim in commondims:
-            int_dim_coords = list(range(len(commoncoords[dim])))
+        for dim in self.dims:
+            int_dim_coords = list(range(len(self.coords[dim])))
             int_coords[dim] = int_dim_coords
-            if dim in obj.dims:
-                scoo[:,obj.dims.index(dim)] = np.array(int_dim_coords)[np.array(commoncoords[dim]).searchsorted(scoo[:,obj.dims.index(dim)], sorter=int_dim_coords)]
-        return scoo, int_coords
+            coo[:, self.dims.index(dim)] = np.array(int_dim_coords)[np.array(self.coords[dim]).searchsorted(self.coo[:, self.dims.index(dim)], sorter=int_dim_coords)]
+        return dict(coo=coo, coords=int_coords)
 
     @staticmethod
-    def _coords_replace(coo, dims:list, coords:dict):
-        coo_ = coo.copy()
+    def _coords_replace(obj, dims:list, pseudocoords:dict):
+        '''
+        dims a list that contains the dimensions to replace the coords
+        pseudocoords contains the new dimensions coords, not necesarilly has to be unique, though.
+        '''
+        assert set(dims).issubset(set(pseudocoords)), "dims must be a subset of pseudocoords keys"
+        assert set(dims).issubset(set(obj.dims))
+        coo = obj.coo.copy()
         for dim in dims:
-            if dim in coords:
-                dim_coords = coords[dim]
-                coo_[:,dims.index(dim)] = np.array(dim_coords)[np.array(coords[dim]).searchsorted(coo_[:,dims.index(dim)], sorter=list(range(len(coords[dim]))))]
-        return coo
+            if dim in pseudocoords:
+                assert len(obj.coords[dim]) == len(pseudocoords[dim]), f"pseudocoords[{dim}] must have the same length as obj.coords[{dim}]"
+                dim_coords = pseudocoords[dim]
+                coo[:,obj.dims.index(dim)] = np.array(dim_coords)[np.array(obj.coords[dim]).searchsorted(obj.coo[:,obj.dims.index(dim)], sorter=list(range(len(obj.coords[dim]))))]
+        coords = {}
+        for dim in obj.coords:
+            if dim in pseudocoords:
+                coords[dim] = sorted(set(pseudocoords[dim]))
+            else:
+                coords[dim] = obj.coords[dim]
 
-    def all_int(self, obj, commondims, commoncoords):
+        return dict(coo=coo, coords=coords)
+
+    def all_int(self):
         '''
         Returns an array with all coordinates integers.
         '''
-        coo, _, int_coords = self._int_coords(obj, commondims=commondims, commoncoords=commoncoords)
-        coo_ = self._coords_replace(coo=coo, dims=obj.dims, coords=int_coords)
-        return array(coo=coo_, dims=obj.dims, coords=int_coords, dtype=obj.dtype, order=obj.order)
+        coo_coords_dict = self._int_coords()
+        return array(coo=coo_coords_dict['coo'], dims=self.dims, coords=coo_coords_dict['coords'], dtype=self.dtype, order=self.order)
 
 
 
