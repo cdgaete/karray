@@ -6,6 +6,7 @@ import pyarrow.feather as ft
 import json
 from functools import reduce
 from itertools import product
+from typing import Union
 from .utils import _format_bytes
 
 
@@ -35,11 +36,7 @@ class array:
         self.dense_ = dense
         self.cindex_ = cindex
         self.dindex_ = dindex
-        oredered_dims = self._order_with_preference(self.dims, self.order)
-        ordered_dict = self._reorder(self.coo, self.dims, self.coords, oredered_dims)
-        self.coo = ordered_dict['coo']
-        self.dims = ordered_dict['dims']
-        self.coords = ordered_dict['coords']
+        self._initial_dims_rearrange()
         return None
 
     def _repr_html_(self):
@@ -66,7 +63,7 @@ class array:
 
     def __getattr__(self, name):
         if name.startswith('_'):
-            raise AttributeError(name)
+            raise AttributeError(name) # ipython requirement for repr_html
         if name == "cindex_":
             if name in self._repo:
                 if self._repo[name] is None:
@@ -93,6 +90,28 @@ class array:
 
     def __repr__(self):
         return f"Karray.array(coo, dims, coords)"
+
+    def _initial_dims_rearrange(self):
+        oredered_dims = self._order_with_preference(self.dims, self.order)
+        ordered_dict = self._reorder(self.coo, self.dims, self.coords, oredered_dims)
+        flag = False
+        if self.dims != ordered_dict['dims']:
+            flag = True
+        if self.coords != ordered_dict['coords']:
+            flag = True
+        elif tuple(self.coords.keys()) != tuple(ordered_dict['coords'].keys()):
+            flag = True
+        self.coo = ordered_dict['coo']
+        self.dims = ordered_dict['dims']
+        self.coords = ordered_dict['coords']
+        if flag:
+            print("flag true")
+            self.dense_ = None
+            self.cindex_ = None
+            self.dindex_ = None
+        return None
+
+
 
     def _add_coords(self):
         self.coords = {}
@@ -137,14 +156,12 @@ class array:
         '''
         return self._dindex(self.coords)
 
-    # TODO: This function needs to be optimized.
     def _dindex(self, coords):
         '''
         Returns the index of dense array as a list of tuples.
         '''
         return sorted(product(*list(coords.values())))
 
-    # TODO: This function needs to be optimized.
     def dense(self, dtype='float64'):
         '''
         Return a dense version of the array based on the coords.
@@ -159,13 +176,8 @@ class array:
             >>> dense = ar.dense()
         '''
         values = self.coo[:,len(self.dims)]
-        hshTbl = {}
-        ix_zeros = []
-        for idx, ai in enumerate(self.dindex_):
-            hshTbl[ai] = idx
-        for bi in self.cindex_:
-            if bi in hshTbl:
-                ix_zeros.append(hshTbl[bi])
+        hshTbl = {ai: idx for idx, ai in enumerate(self.dindex_)}
+        ix_zeros = [hshTbl[bi] for bi in self.cindex_]
         zeros = np.zeros((len(self.dindex_),), dtype=dtype)
         zeros[ix_zeros] = values
         return zeros.reshape(self.shape)
@@ -267,11 +279,16 @@ class array:
         self_dims = [d for d in commondims if d in obj.dims]
         self_coords = {d:commoncoords[d] for d in self_dims}
         if obj.coords != self_coords:
-            self_coo_ordered_dict = obj._reorder(obj.coo, obj.dims, obj.coords, self_dims)
+            self_coo_ordered_dict = obj._reorder(obj.coo, obj.dims, obj.coords, commondims)
             self_array = array(coo=self_coo_ordered_dict['coo'], dims=self_dims, coords=self_coords, dtype=obj.dtype, order=None)
             self_inv_dense = self_array.dense_.T
         else:
-            self_inv_dense = obj.dense_.T
+            if tuple(obj.coords.keys()) == tuple(self_coords.keys()):
+                self_inv_dense = obj.dense_.T
+            else:
+                self_coo_ordered_dict = obj._reorder(obj.coo, obj.dims, obj.coords, commondims)
+                self_array = array(coo=self_coo_ordered_dict['coo'], dims=self_dims, coords=self_coords, dtype=obj.dtype, order=None)
+                self_inv_dense = self_array.dense_.T
         return self_inv_dense
 
     def _pre_operation_with_array(self, other):
@@ -279,8 +296,8 @@ class array:
         assert self.dtype == other.dtype, "'dtype' attribute must be equal in both arrays"
         commondims = self._union_dims(other, self.order)
         commoncoords = self._union_coords(other, commondims)
-        self_inv_dense = self._get_inv_dense(self,commondims,commoncoords)
-        other_inv_dense = self._get_inv_dense(other,commondims,commoncoords)
+        self_inv_dense = self._get_inv_dense(self, commondims, commoncoords)
+        other_inv_dense = self._get_inv_dense(other, commondims, commoncoords)
         return self_inv_dense, other_inv_dense, commondims, commoncoords
 
     def _pre_operation_with_number(self):
@@ -445,67 +462,229 @@ class array:
         coo = self.coo[mask]
         return array(coo=coo, dims=self.dims, coords=new_coords, dtype=self.dtype, order=self.order)
 
-    def coords_replace(self, dim:str=None, unique_coords:list=None):
+    @staticmethod
+    def _reduce(obj, dim:str, aggfunc:str):
         '''
-        Replace the coordinates of a dimension.
-
-        Args:
-            dim (str): the dimension to replace.
-            unique_coords (list): the new coordinates.
-
-        Returns:
-            a new coo array with the coordinates specified in the kwargs.
-
-        Example:
-            >>> import karray as ka
-            >>> import numpy as np
-            >>> ar = ka.array(coo = np.array([[1,2,3],[4,5,6]]), dims = ['x','y'], coords = {'x':[1,4],'y':[2,5]})
-            >>> ar = ar.coords_replace(dim='x', unique_coords=['a','b'])
+        aggfunc in ['sum','mul','mean']
         '''
-        assert dim in self.dims, "Dimension must be in dims"
-        assert isinstance(unique_coords, list), "Unique_coords must be a list"
-        assert len(set(unique_coords)) == len(unique_coords), "Unique_coords must be unique"
-        assert len(unique_coords) == len(self.coords[dim]), "Unique_coords must be the same length as the original coordinates"
+        assert dim in obj.dims, f"dim {dim} not in self.dims: {obj.dims}"
 
-        coo = self.coo.copy()
-        coo[:,self.dims.index(dim)] = np.array(unique_coords)[np.array(self.coords[dim]).searchsorted(coo[:,self.dims.index(dim)], sorter=list(range(len(self.coords[dim]))))]
-        coords = {k:v for k,v in self.coords.items()}
-        coords[dim] = unique_coords
-        return array(coo=coo, dims=self.dims, coords=coords, dtype=self.dtype, order=self.order)
+        if aggfunc == 'sum':
+            dense = np.add.reduce(obj.dense_, axis=obj.dims.index(dim))
+        elif aggfunc == 'mul':
+            dense = np.multiply.reduce(obj.dense_, axis=obj.dims.index(dim))
+        elif aggfunc == 'mean':
+            dense = np.average(obj.dense_, axis=obj.dims.index(dim))
 
-    def _add_dim(self, dim:str, unique_coords:list):
+        dims = [d for d in obj.dims if d != dim]
+        coords = {k:v for k,v in obj.coords.items() if k in dims}
+        dindex = obj._dindex(coords)
+        coo_dense = np.hstack([np.array(dindex, dtype=object), dense.reshape(dense.size,1)])
+        coo_dense = coo_dense[coo_dense[:,-1] != 0]
+        coo = coo_dense[coo_dense[:,-1] != np.nan]
+        
+        return dict(coo=coo, dims=dims, coords=coords, dtype=obj.dtype, order=obj.order, dense=dense, dindex=dindex)
+
+    def reduce(self, dim, aggfunc='sum'):
+        '''
+        aggfunc in ['sum','mul','mean'], defult 'sum'
+        '''
+        return array(**self._reduce(self, dim, aggfunc))
+
+    @staticmethod
+    def _add_dim_single(obj, **kwargs):
         '''
         Add a new dimension to the array with only one element.
+        This function add the new dimention in position 0.
+        The order of the new dimensions will be adjusted when creating the new array (see _initial_dims_rearrange)
 
         Args:
-            dim (str): the new dimension name.
-            unique_coords (list): the new coordinates.
+            kwargs: {dim:unique_coords} with:
+                dim (str): the new dimension name.
+                unique_coords (str or int): the new coordinate.
 
         Returns:
-            a new coo array with the coordinates specified in the kwargs.
+            Dictionary with new coo, dims and coords
 
         Example:
             >>> import karray as ka
             >>> import numpy as np
             >>> ar = ka.array(coo = np.array([[1,2,3],[4,5,6]]), dims = ['x','y'], coords = {'x':[1,4],'y':[2,5]})
-            >>> ar = ar.add_dim(dim='z', unique_coords=['a'])
+            >>> ar = ar.add_dim(z='a')
         '''
-        assert dim not in self.dims, "Dimension must not be in dims"
-        assert isinstance(unique_coords, list), "Unique_coords must be a list"
-        assert len(set(unique_coords)) == 1, "Unique_coords length must be 1"
-        coo = np.hstack((np.empty([self.coo.shape[0],1], self.coo.dtype), self.coo))
-        coo[:,0] = unique_coords[0]
-        dims = [dim] + self.dims
+        for dim in kwargs:
+            assert dim not in obj.dims, f"Dimension '{dim}' must not be in dims {obj.dims}"
+            assert isinstance(kwargs[dim], (str,int)), "Unique_coords must be a string or integer"
+
+        coo_ = obj.coo.copy()
+        dims_ = obj.dims[:]
         coords = {}
-        coords[dim] = unique_coords
-        for k,v in self.coords.items():
+        for dim in kwargs:
+            coo_ = np.hstack((np.empty([coo_.shape[0],1], coo_.dtype), coo_))
+            coo_[:,0] = kwargs[dim]
+            dims_ = [dim] + dims_
+            coords[dim] = [kwargs[dim]]
+        for k,v in obj.coords.items():
             coords[k] = v
-        return dict(coo=coo, dims=dims, coords=coords, dtype=self.dtype, order=self.order)
+        return dict(coo=coo_, dims=dims_, coords=coords, dtype=obj.dtype, order=obj.order)
 
-    def add_dim(self, dim, unique_coords):
-        return array(**self._add_dim(dim=dim, unique_coords=unique_coords))
+    @staticmethod
+    def _add_dim_map(obj, replace=True, **kwargs):
+        '''
+        Add a new dimensions to the array with elements that match with an existing dimension elements.
 
-    def str2int(self, dim:str=None, use_index:bool=False):
+        Args:
+            kwargs: {dim:unique_coords} with:
+            dim (str): the new dimension name.
+            unique_coords (dict): dictionary with existing dims as keys and a nested dictionary that maps elements of an existing dimension with the new one.
+
+        Returns:
+            Dictionary with new coo, dims and coords.
+
+        Example:
+            >>> import karray as ka
+            >>> import numpy as np
+            >>> ar = ka.array(coo = np.array([[1,2,3],[4,5,6]]), dims = ['x','y'], coords = {'x':[1,4,6],'y':[2,5]})
+            >>> ar = ar.add_dim(z={'x':{1:'m',4:'n',6:'m'}}) # Where 'm' and 'n' are the new elements, and match with each 'x' elements.
+        '''
+        for dim in kwargs:
+            assert dim not in obj.dims, f"Dimension '{dim}' must not be in dims {obj.dims}"
+            assert isinstance(kwargs[dim], dict), "Unique_coords must be a dictionary"
+            assert len(kwargs[dim]) == 1, "Only one key is possible with an existing dim"
+            existing_dim = list(kwargs[dim].keys())[0]
+            assert existing_dim in obj.dims, f"The dictionary key {existing_dim} must be already in dims {obj.dims}"
+            assert isinstance(kwargs[dim][existing_dim], dict), f"The dictionary value must be a nested dict that contains the elements map"
+
+        new_dims = []
+        pseudo_ordered_coords = {}
+
+        dims_to_replace = {}
+        for dim in kwargs:
+            existing_dim = list(kwargs[dim].keys())[0]
+            dims_to_replace[existing_dim] = dim
+            new_dims.append(dim)
+            pseudo_ordered = []
+            for elem in obj.coords[existing_dim]:
+                pseudo_ordered.append(kwargs[dim][existing_dim][elem])
+            pseudo_ordered_coords[dim] = pseudo_ordered
+        if replace:
+            attr_dict = obj._rename(obj, **dims_to_replace)
+            attr_dict = obj._coords_replace(attr_dict['coo'], attr_dict['dims'], attr_dict['coords'], new_dims, pseudo_ordered_coords)
+            return dict(coo=attr_dict['coo'], dims=attr_dict['dims'], coords=attr_dict['coords'], dtype=obj.dtype, order=obj.order)
+        else:
+            coords = {}
+            dims = []
+            coo = np.hstack((np.empty([obj.coo.shape[0],len(dims_to_replace)], obj.coo.dtype), obj.coo))
+            i = 0
+            for existing_dim in dims_to_replace:
+                coords[dims_to_replace[existing_dim]] = obj.coords[existing_dim]
+                dims.append(dims_to_replace[existing_dim])
+                coo[:,i] = obj.coo[obj.dims.index(existing_dim)]
+                i += 1
+            for dim in obj.coords:
+                coords[dim] = obj.coords[dim]
+                dims.append(dim)
+            attr_dict = obj._coords_replace(coo, dims, coords, new_dims, pseudo_ordered_coords)
+            return dict(coo=attr_dict['coo'], dims=attr_dict['dims'], coords=attr_dict['coords'], dtype=obj.dtype, order=obj.order)
+
+
+    def add_dim(self, replace=True, **kwargs):
+        first_value = list(kwargs.values())[0]
+        if isinstance(first_value, (str,int)):
+            return array(**self._add_dim_single(self,**kwargs))
+        elif isinstance(first_value, dict):
+            return array(**self._add_dim_map(self,replace,**kwargs))
+
+    @staticmethod
+    def _rename(obj, **kwargs):
+        '''
+        rename dims
+
+        Example:
+            >>> import karray as ka
+            >>> import numpy as np
+            >>> ar = ka.array(coo = np.array([[1,2,3],[4,5,6]]), dims = ['x','y'], coords = {'x':[1,4,6],'y':[2,5]})
+            >>> ar = ar.rename(x='z')
+        '''
+        for olddim, newdim in kwargs.items():
+            assert olddim in obj.dims, f"Dimension {olddim} must be in dims {obj.dims}"
+            assert newdim not in obj.dims, f"Dimension {newdim} must not be in dims {obj.dims}"
+        
+        coords = {}
+        for dim, elems in obj.coords.items():
+            if dim in kwargs:
+                coords[kwargs[dim]] = elems
+            else:
+                coords[dim] = elems
+        dims = obj.dims[:]
+        for dim in kwargs:
+            dims[dims.index(dim)] = kwargs[dim]
+        return dict(coo=obj.coo, dims=dims, coords=coords, dtype=obj.dtype, order=obj.order)
+
+    def rename(self, include_dense:bool=False, **kwargs):
+        '''
+        rename dims
+        '''
+        dims_coords_dict = self._rename(self, **kwargs)
+        if include_dense:
+            return array(dense=self.dense_, dindex=self.dindex_,**dims_coords_dict)
+        else:
+            return array(**dims_coords_dict)
+
+    #TODO: add elements to coords. Useful from the beginning. This will avoid always getting new dense when native symbols deal with derived ones.
+
+    # def coords_replace(self, dim:str=None, unique_coords:list=None):
+    #     '''
+    #     Replace the coordinates of a dimension.
+
+    #     Args:
+    #         dim (str): the dimension to replace.
+    #         unique_coords (list): the new coordinates.
+
+    #     Returns:
+    #         a new coo array with the coordinates specified in the kwargs.
+
+    #     Example:
+    #         >>> import karray as ka
+    #         >>> import numpy as np
+    #         >>> ar = ka.array(coo = np.array([[1,2,3],[4,5,6]]), dims = ['x','y'], coords = {'x':[1,4],'y':[2,5]})
+    #         >>> ar = ar.coords_replace(dim='x', unique_coords=['a','b'])
+    #     '''
+    #     assert dim in self.dims, "Dimension must be in dims"
+    #     assert isinstance(unique_coords, list), "Unique_coords must be a list"
+    #     assert len(set(unique_coords)) == len(unique_coords), "Unique_coords must be unique"
+    #     assert len(unique_coords) == len(self.coords[dim]), "Unique_coords must be the same length as the original coordinates"
+
+    #     coo = self.coo.copy()
+    #     coo[:,self.dims.index(dim)] = np.array(unique_coords)[np.array(self.coords[dim]).searchsorted(coo[:,self.dims.index(dim)], sorter=list(range(len(self.coords[dim]))))]
+    #     coords = {k:v for k,v in self.coords.items()}
+    #     coords[dim] = unique_coords
+    #     return array(coo=coo, dims=self.dims, coords=coords, dtype=self.dtype, order=self.order)
+
+    @staticmethod
+    def _coords_replace(obj_coo, obj_dims, obj_coords, dims:list, pseudocoords:dict):
+        '''
+        dims a list that contains the dimensions to replace the coords
+        pseudocoords contains the new dimensions coords, not necesarilly has to be unique, though.
+        '''
+        assert set(dims).issubset(set(pseudocoords)), "dims must be a subset of pseudocoords keys"
+        assert set(dims).issubset(set(obj_dims))
+        coo = obj_coo.copy()
+        for dim in dims:
+            if dim in pseudocoords:
+                assert len(obj_coords[dim]) == len(pseudocoords[dim]), f"pseudocoords[{dim}] must have the same length as obj_coords[{dim}]"
+                dim_coords = pseudocoords[dim]
+                coo[:,obj_dims.index(dim)] = np.array(dim_coords)[np.array(obj_coords[dim]).searchsorted(obj_coo[:,obj_dims.index(dim)], sorter=list(range(len(obj_coords[dim]))))]
+        coords = {}
+        for dim in obj_coords:
+            if dim in pseudocoords:
+                coords[dim] = sorted(set(pseudocoords[dim]))
+            else:
+                coords[dim] = obj_coords[dim]
+        return dict(coo=coo, dims=obj_dims, coords=coords)
+
+    @staticmethod
+    def _str2int(obj, dim:str=None, use_index:bool=False):
         '''
         Convert the coordinates of a dimension to integers if the coordinates are numbered strings.
 
@@ -515,20 +694,37 @@ class array:
             >>> ar = ka.array(coo = np.array([[1,2,3],[4,5,6]]), dims = ['x','y'], coords = {'x':['a01','a02'],'y':['c','d']})
             >>> ar = ar.str2int(dim='x')
         '''
-        assert dim in self.dims, "Dimension must be in dims"
+        assert dim in obj.dims, "Dimension must be in dims"
         if use_index:
-            int_coords = list(range(len(self.coords[dim])))
+            int_coords = list(range(len(obj.coords[dim])))
         else:
-            int_coords = [int(''.join(filter(str.isdigit, elem))) for elem in self.coords[dim]]
+            int_coords = [int(''.join(filter(str.isdigit, elem))) for elem in obj.coords[dim]]
             assert len(set(int_coords)) == len(int_coords), "There are duplicate values. You can use use_index=True to use the index instead of getting the numbers from string."
-        return self.coords_replace(dim=dim, unique_coords=int_coords)
+        coo_coords_dict =  obj._coords_replace(obj.coo,obj.dims,obj.coords, dim=[dim], pseudocoords={dim:int_coords})
+        return dict(coo=coo_coords_dict['coo'], dims=obj.dims, coords=coo_coords_dict['coords'], dtype=obj.dtype, order=obj.order)
+
+    def str2int(self, dim:str=None, use_index:bool=False, include_dense:bool=False):
+        '''
+        Convert the coordinates of a dimension to integers if the coordinates are numbered strings.
+
+        Example:
+            >>> import karray as ka
+            >>> import numpy as np
+            >>> ar = ka.array(coo = np.array([[1,2,3],[4,5,6]]), dims = ['x','y'], coords = {'x':['a01','a02'],'y':['c','d']})
+            >>> ar = ar.str2int(dim='x')
+        '''
+        array_dict = self._str2int(self, dim=dim, use_index=use_index)
+        if include_dense:
+            return array(dense=self.dense_, dindex=self.dindex_, **array_dict)
+        else:
+            return array(**array_dict)
+
 
 
     ########## Methods for converting arrays to all integers ##########
 
     def _int_coords(self):
         coo = self.coo.copy()
-
         int_coords = {}
         for dim in self.dims:
             int_dim_coords = list(range(len(self.coords[dim])))
@@ -536,35 +732,34 @@ class array:
             coo[:, self.dims.index(dim)] = np.array(int_dim_coords)[np.array(self.coords[dim]).searchsorted(self.coo[:, self.dims.index(dim)], sorter=int_dim_coords)]
         return dict(coo=coo, coords=int_coords)
 
-    @staticmethod
-    def _coords_replace(obj, dims:list, pseudocoords:dict):
-        '''
-        dims a list that contains the dimensions to replace the coords
-        pseudocoords contains the new dimensions coords, not necesarilly has to be unique, though.
-        '''
-        assert set(dims).issubset(set(pseudocoords)), "dims must be a subset of pseudocoords keys"
-        assert set(dims).issubset(set(obj.dims))
-        coo = obj.coo.copy()
-        for dim in dims:
-            if dim in pseudocoords:
-                assert len(obj.coords[dim]) == len(pseudocoords[dim]), f"pseudocoords[{dim}] must have the same length as obj.coords[{dim}]"
-                dim_coords = pseudocoords[dim]
-                coo[:,obj.dims.index(dim)] = np.array(dim_coords)[np.array(obj.coords[dim]).searchsorted(obj.coo[:,obj.dims.index(dim)], sorter=list(range(len(obj.coords[dim]))))]
-        coords = {}
-        for dim in obj.coords:
-            if dim in pseudocoords:
-                coords[dim] = sorted(set(pseudocoords[dim]))
-            else:
-                coords[dim] = obj.coords[dim]
-
-        return dict(coo=coo, coords=coords)
-
     def all_int(self):
         '''
         Returns an array with all coordinates integers.
         '''
         coo_coords_dict = self._int_coords()
         return array(coo=coo_coords_dict['coo'], dims=self.dims, coords=coo_coords_dict['coords'], dtype=self.dtype, order=self.order)
+
+    def dense_new(self):
+        values = self.coo[:,-1]
+        hlistd = []
+        for t in self.dindex_:
+            hlistd.append(hash(t))
+        hlistc = []
+        for t in self.cindex_:
+            hlistc.append(hash(t))
+
+        dindex = np.array(hlistd)
+        cindex = np.array(hlistc)
+
+        dindex_arg = np.argsort(dindex)
+        dindex_ = dindex[dindex_arg]
+        cindex_arg = np.argsort(cindex)
+        cindex_ = cindex[cindex_arg]
+        ix = np.searchsorted(dindex_, cindex_)
+        ixa = dindex_arg[ix]
+        zeros = np.zeros((len(self.dindex_),), dtype='float64')
+        zeros[ixa] = values[cindex_arg]
+        return zeros.reshape(self.shape)
 
 
 
