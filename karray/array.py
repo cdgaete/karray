@@ -10,6 +10,138 @@ from typing import Union
 from .utils import _format_bytes
 
 
+class Coo:
+    def __init__(self, data:object):
+        if isinstance(data, list):
+            self.data = data
+        elif isinstance(data, np.ndarray):
+            self.data = [np.array(ar.tolist()) for ar in data.T]
+        elif isinstance(data, Coo):
+            self.data = data.data
+
+
+    def _repr_html_(self):
+        coo_nbytes = _format_bytes(sum([arr.nbytes for arr in self.data]))
+        shape = (self.data[0].shape[0], len(self.data))
+        return ('<h3>Coo</h3>'
+            '<table>'
+            f'<tr><th>data</th><td>{coo_nbytes}</td></tr>'
+            f'<tr><th>shape</th><td>{shape}</td></tr>'
+            '</table>')
+
+    def __getitem__(self, item:Union[int,slice,np.ndarray,tuple]):
+        if isinstance(item, (int,slice,range,np.ndarray)):
+            rows = item
+            cols = slice(0, len(self.data), 1)
+            data = []
+            for col in range(cols.start,cols.stop,cols.step):
+                data.append(self.data[col][rows].copy())
+            return Coo(data)
+        elif isinstance(item, tuple):
+            rows = item[0]
+            column = item[1]
+            if isinstance(column, (slice,range)):
+                start = column.start
+                stop = column.stop or len(self.data)
+                step = column.step or 1
+                cols = slice(start,stop,step)
+                data = []
+                for col in range(cols.start,cols.stop,cols.step):
+                    data.append(self.data[col][rows].copy())
+                return Coo(data)
+            elif isinstance(column, list):
+                data = []
+                for col in column:
+                    data.append(self.data[col][rows].copy())
+                return Coo(data)
+            elif isinstance(column, int):
+                return self.data[column][rows]
+            else:
+                raise Exception("Column type not supported")
+        else:
+            raise Exception("Slice type not supported")
+
+    def __iter__(self):
+        return self.data
+
+    def __eq__(self, __o: object):
+        if isinstance(__o, np.generic):
+            if np.isnan(__o):
+                return self.data[-1] == __o
+            else:
+                raise Exception("np.array not supported yet")
+        elif isinstance(__o, (int,float)):
+            return self.data[-1] == __o
+        else:
+            raise Exception(f"{type(__o)} not supported yet")
+    def __ne__(self, __o: object):
+        if isinstance(__o, np.generic):
+            if np.isnan(__o):
+                return self.data[-1] != __o
+            else:
+                raise Exception("np.array not supported yet")
+        elif isinstance(__o, (int,float)):
+            return self.data[-1] != __o
+        else:
+            raise Exception(f"{type(__o)} not supported yet")
+
+    # def __add__(self, other):
+    #     if isinstance(other, (int, float)):
+    #         data = self.data[:]
+    #         data[-1] = self.data[-1].copy() + other
+    #         return Coo(data)
+    #     else:
+    #         raise Exception("Not supported yet")
+
+    # def __mul__(self, other):
+    #     if isinstance(other, (int, float)):
+    #         data = self.data[:]
+    #         data[-1] = self.data[-1].copy() * other
+    #         return Coo(data)
+    #     else:
+    #         raise Exception("Not supported yet")
+
+    # def __sub__(self, other):
+    #     if isinstance(other, (int, float)):
+    #         data = self.data[:]
+    #         data[-1] = self.data[-1].copy() - other
+    #         return Coo(data)
+    #     else:
+    #         raise Exception("Not supported yet")
+
+    # def __truediv__(self, other):
+    #     if isinstance(other, (int, float)):
+    #         data = self.data[:]
+    #         data[-1] = self.data[-1].copy() / other
+    #         return Coo(data)
+    #     else:
+    #         raise Exception("Not supported yet")
+
+    # def __radd__(self, other):
+    #     if isinstance(other, (int, float)):
+    #         data = self.data[:]
+    #         data[-1] = other + self.data[-1].copy()
+    #         return Coo(data)
+
+    # def __rmul__(self, other):
+    #     if isinstance(other, (int, float)):
+    #         data = self.data[:]
+    #         data[-1] = other * self.data[-1].copy()
+    #         return Coo(data)
+
+    # def __rsub__(self, other):
+    #     if isinstance(other, (int, float)):
+    #         data = self.data[:]
+    #         data[-1] = other - self.data[-1].copy()
+    #         return Coo(data)
+
+    # def __rtruediv__(self, other):
+    #     if isinstance(other, (int, float)):
+    #         data = self.data[:]
+    #         data[-1] = other / self.data[-1].copy()
+    #         return Coo(data)
+
+
 class array:
     """
     A class for labelled multidimensional arrays.
@@ -27,17 +159,23 @@ class array:
                     order (list of strings) for prefered order of dims if they are in the coo array.
         '''
         self.__dict__["_repo"] = {}
-        self.coo = coo
-        self.dims = dims
+        self.coo = None
+        self.dims = None
         self.coords = None
         self.dtype = dtype
         self.order = order
-        self._check_input(coords)
+        coo, dims, coords = self._check_input(coo, dims, coords)
+        # coo, dims, coords = self._check_input(Coo(coo), dims, coords) # new
         self.dense_ = dense
         self.cindex_ = cindex
         self.dindex_ = dindex
-        self._initial_dims_rearrange()
+        self._initial_dims_rearrange(coo, dims, coords)
+        # Experiment
+        self.cooo = Coo(self.coo)
         return None
+
+    def __repr__(self):
+        return f"Karray.array(coo, dims, coords)"
 
     def _repr_html_(self):
         if all([arg is not None for arg in [self._repo['coo'], self._repo['dims'], self._repo['coords']]]):
@@ -88,50 +226,48 @@ class array:
         else:
             return self._repo[name]
 
-    def __repr__(self):
-        return f"Karray.array(coo, dims, coords)"
+    def _add_coords(self, coo, dims):
+        coords = {}
+        for i, dim in enumerate(dims):
+            coords[dim] = list(np.sort(np.unique(coo[:,i])))
+        return coords
 
-    def _initial_dims_rearrange(self):
-        oredered_dims = self._order_with_preference(self.dims, self.order)
-        ordered_dict = self._reorder(self.coo, self.dims, self.coords, oredered_dims)
+    def _check_input(self, coo, dims, coords):
+        assert all([arg is not None for arg in [coo, dims, self.dtype]]), "coo, dims and dtype must be defined"
+        assert isinstance(coo, np.ndarray), "coo must be a numpy array"
+        # assert isinstance(coo, Coo), "coo must be a numpy array" # new
+        assert isinstance(dims, list), "dims must be a list"
+        if coords is None:
+            print("coords is None. self.coords has been generated from coo and dims.")
+            coords = self._add_coords(coo, dims)
+        assert isinstance(coords, dict), "coords must be a dictionary"
+        assert len(dims) == len(coords), "Length of dims and coords must be equal"
+        assert all([all(np.sort(np.unique(arr)) == np.sort(arr)) for arr in coords.values()]), "Coordinates must be unique."
+        for i in range(len(dims)):
+            assert set(coo[:,range(len(dims))].T[i]).issubset(coords[dims[i]]), f"All elements of coo array must be included in coords for dim: {self.dims[i]}."
+            # assert set(coo[:,i]).issubset(coords[dims[i]]), f"All elements of coo array must be included in coords for dim: {self.dims[i]}." # new
+        return coo, dims, coords
+
+    def _initial_dims_rearrange(self, coo, dims, coords):
+        oredered_dims = self._order_with_preference(dims, self.order)
+        ordered_dict = self._reorder(coo, dims, coords, oredered_dims)
         flag = False
-        if self.dims != ordered_dict['dims']:
+        if dims != ordered_dict['dims']:
             flag = True
-        if self.coords != ordered_dict['coords']:
+        if coords != ordered_dict['coords']:
             flag = True
-        elif tuple(self.coords.keys()) != tuple(ordered_dict['coords'].keys()):
+        elif tuple(coords.keys()) != tuple(ordered_dict['coords'].keys()):
             flag = True
         self.coo = ordered_dict['coo']
         self.dims = ordered_dict['dims']
         self.coords = ordered_dict['coords']
         if flag:
-            print("flag true")
-            self.dense_ = None
-            self.cindex_ = None
-            self.dindex_ = None
+            if self.dense_ is not None:
+                print("array.__init__: coords reordered self.dense_ switched to None")
+                self.dense_ = None
+                self.cindex_ = None
+                self.dindex_ = None
         return None
-
-
-
-    def _add_coords(self):
-        self.coords = {}
-        for i, dim in enumerate(self.dims):
-            self.coords[dim] = list(np.sort(np.unique(self.coo[:,i])))
-
-    def _check_input(self, coords):
-        assert all([arg is not None for arg in [self.coo, self.dims, self.dtype]]), "coo, dims and dtype must be defined"
-        assert isinstance(self.coo, np.ndarray), "coo must be a numpy array"
-        assert isinstance(self.dims, list), "dims must be a list"
-        if coords is None:
-            print("coords is None. self.coords has been generated from coo and dims.")
-            self._add_coords()
-        else:
-            assert isinstance(coords, dict), "coords must be a dictionary"
-            self.coords = coords
-            assert len(self.dims) == len(self.coords), "Length of dims and coords must be equal"
-            assert all([all(np.sort(np.unique(arr)) == np.sort(arr)) for arr in self.coords.values()]), "Coordinates must be unique."
-            for i in range(len(self.dims)):
-                assert set(self._cindex.T[i]).issubset(self.coords[self.dims[i]]), f"All elements of coo array must be included in coords for dim: {self.dims[i]}."
 
     @property
     def shape(self):
@@ -149,6 +285,7 @@ class array:
         Returns the index of coo array as a list of tuples.
         '''
         return list(zip(*self._cindex.T))
+        # return list(zip(*self._cindex.data)) # new
 
     def dindex(self):
         '''
@@ -201,6 +338,7 @@ class array:
         dorder = [self_dim.index(d) for d in order]
         dim_order = dorder + [len(dorder)]
         coo = self_coo.T[dim_order].T
+        # coo = self_coo[:, dim_order] # new
         return dict(coo=coo, dims=order, coords=coords)
 
     def reorder(self, order=None):
@@ -233,6 +371,11 @@ class array:
         '''
         if set(self.dims) == set(other.dims):
             return self._order_with_preference(self.dims, preferred_order)
+        elif len(self.dims) == 0 or len(other.dims) == 0:
+            for obj in [self,other]:
+                if len(obj.dims) > 0:
+                    dims = obj.dims
+            return self._order_with_preference(dims, preferred_order)
         elif len(set(self.dims).symmetric_difference(set(other.dims))) > 0:
             common_dims = set(self.dims).intersection(set(other.dims))
             assert len(common_dims) > 0, "At least one dimension must be common"
@@ -279,14 +422,14 @@ class array:
         self_dims = [d for d in commondims if d in obj.dims]
         self_coords = {d:commoncoords[d] for d in self_dims}
         if obj.coords != self_coords:
-            self_coo_ordered_dict = obj._reorder(obj.coo, obj.dims, obj.coords, commondims)
+            self_coo_ordered_dict = obj._reorder(obj.coo, obj.dims, obj.coords, self_dims)
             self_array = array(coo=self_coo_ordered_dict['coo'], dims=self_dims, coords=self_coords, dtype=obj.dtype, order=None)
             self_inv_dense = self_array.dense_.T
         else:
             if tuple(obj.coords.keys()) == tuple(self_coords.keys()):
                 self_inv_dense = obj.dense_.T
             else:
-                self_coo_ordered_dict = obj._reorder(obj.coo, obj.dims, obj.coords, commondims)
+                self_coo_ordered_dict = obj._reorder(obj.coo, obj.dims, obj.coords, self_dims)
                 self_array = array(coo=self_coo_ordered_dict['coo'], dims=self_dims, coords=self_coords, dtype=obj.dtype, order=None)
                 self_inv_dense = self_array.dense_.T
         return self_inv_dense
@@ -307,14 +450,20 @@ class array:
         dense = resulting_dense.T
         dindex = self._dindex(coords)
         coo_dense = np.hstack([np.array(dindex, dtype=object), dense.reshape(dense.size,1)])
+        # coo_dense = Coo(*Coo(np.array(dindex, dtype=object)) + [dense.reshape(dense.size,1)]) # new
         coo_dense = coo_dense[coo_dense[:,-1] != 0]
+        # coo_dense = coo_dense[coo_dense != 0] # new
         coo = coo_dense[coo_dense[:,-1] != np.nan]
+        # coo = coo_dense[coo_dense != np.nan] # new
         return array(coo=coo, dims=dims, coords=coords, dtype=self.dtype, order=self.order, dense=dense, dindex=dindex)
 
     def _post_operation_with_number(self, resulting_dense):
         coo_dense = np.hstack([self.coo[:,range(len(self.dims))], resulting_dense.reshape(resulting_dense.size,1)])
+        # coo_dense = Coo(*self.coo[:,range(len(self.dims))] + [resulting_dense.reshape(resulting_dense.size,1)]) # new
         coo_dense = coo_dense[coo_dense[:,-1] != 0]
+        # coo_dense = coo_dense[coo_dense != 0] # new
         coo = coo_dense[coo_dense[:,-1] != np.nan]
+        # coo = coo_dense[coo_dense != np.nan] # new
         return array(coo=coo, dims=self.dims, coords=self.coords, dtype=self.dtype, order=self.order)
 
     def __add__(self, other):
@@ -354,7 +503,18 @@ class array:
             return self._post_operation_with_number(resulting_dense)
         elif isinstance(other, array):
             self_dense, other_dense, dims, coords = self._pre_operation_with_array(other)
-            resulting_dense = self_dense / other_dense
+            # resulting_dense = self_dense / other_dense
+
+            # Avoid zero division warning
+            # Method 1
+            # resulting_dense = np.divide(self_dense, other_dense, out=np.zeros(self_dense.shape, dtype=float), where=other_dense!=0)
+            # Method 2
+            # mask = other_dense != 0.0
+            # resulting_dense = self_dense.copy()
+            # np.divide(self_dense, other_dense, out=resulting_dense, where=mask)
+            # Method 3
+            resulting_dense = np.zeros_like(self_dense)
+            np.divide(self_dense, other_dense, out=resulting_dense, where=~np.isclose(other_dense,np.zeros_like(other_dense)))
             return self._post_operation_with_array(resulting_dense, dims, coords)
 
     def __radd__(self, other):
@@ -403,6 +563,7 @@ class array:
         See also karray.from_feather(path)
         '''
         table = pa.Table.from_pandas(pd.DataFrame(self.coo))
+        # table = pa.Table.from_pandas(pd.DataFrame(*self.coo)) # new
         existing_meta = table.schema.metadata
         custom_meta_key = 'karray'
         custom_metadata = {}
@@ -458,9 +619,24 @@ class array:
                 indexes.append(np.in1d(ar, keep))
             i+=1
         masksum = sum(indexes)
-        mask = masksum == max(masksum)
-        coo = self.coo[mask]
+        maximum = max(masksum)
+        if maximum > 0:
+            mask = masksum == max(masksum) # when criteria unmatch any value in coo then max is zero ended up all true and keep coo as it is
+            coo = self.coo[mask]
+        else:
+            coo = self._make_zero_coo()
         return array(coo=coo, dims=self.dims, coords=new_coords, dtype=self.dtype, order=self.order)
+
+    def add_elem(self, **kwargs):
+        coords = {}
+        for dim in kwargs:
+            assert dim in self.dims, f'dim: {dim} must exist in self.dims: {self.dims}'
+        for dim in self.coords:
+            if dim in kwargs:
+                coords[dim] = sorted(set(self.coords[dim] + kwargs[dim]))
+            else:
+                coords[dim] = self.coords[dim]
+        return array(coo=self.coo, dims=self.dims, coords=coords, dtype=self.dtype, order=self.order)
 
     @staticmethod
     def _reduce(obj, dim:str, aggfunc:str):
@@ -480,9 +656,11 @@ class array:
         coords = {k:v for k,v in obj.coords.items() if k in dims}
         dindex = obj._dindex(coords)
         coo_dense = np.hstack([np.array(dindex, dtype=object), dense.reshape(dense.size,1)])
+        # coo_dense = Coo(Coo(np.array(dindex, dtype=object)).data + [dense.reshape(dense.size,1)]) # new
         coo_dense = coo_dense[coo_dense[:,-1] != 0]
+        # coo_dense = coo_dense[coo_dense != 0] # new
         coo = coo_dense[coo_dense[:,-1] != np.nan]
-        
+        # coo = coo_dense[coo_dense != np.nan] # new
         return dict(coo=coo, dims=dims, coords=coords, dtype=obj.dtype, order=obj.order, dense=dense, dindex=dindex)
 
     def reduce(self, dim, aggfunc='sum'):
@@ -517,11 +695,16 @@ class array:
             assert isinstance(kwargs[dim], (str,int)), "Unique_coords must be a string or integer"
 
         coo_ = obj.coo.copy()
+        # coo_ = Coo(obj.coo) # new
         dims_ = obj.dims[:]
         coords = {}
         for dim in kwargs:
             coo_ = np.hstack((np.empty([coo_.shape[0],1], coo_.dtype), coo_))
+            # arr = np.empty(coo_[:,-1].shape[0], dtype=np.dtype(type(kwargs[dim]).__name__)) # new
+            # arr[:] = kwargs[dim] # new
+            # coo_ = Coo([arr] + coo_.data) # new
             coo_[:,0] = kwargs[dim]
+            # new
             dims_ = [dim] + dims_
             coords[dim] = [kwargs[dim]]
         for k,v in obj.coords.items():
@@ -575,12 +758,15 @@ class array:
             coords = {}
             dims = []
             coo = np.hstack((np.empty([obj.coo.shape[0],len(dims_to_replace)], obj.coo.dtype), obj.coo))
+            # coo = obj.coo.data[:] # new
             i = 0
             for existing_dim in dims_to_replace:
                 coords[dims_to_replace[existing_dim]] = obj.coords[existing_dim]
                 dims.append(dims_to_replace[existing_dim])
                 coo[:,i] = obj.coo[obj.dims.index(existing_dim)]
+                # coo.insert(i,obj.coo[:,obj.dims.index(existing_dim)]) # new
                 i += 1
+            # coo = Coo(coo) # new
             for dim in obj.coords:
                 coords[dim] = obj.coords[dim]
                 dims.append(dim)
@@ -670,11 +856,14 @@ class array:
         assert set(dims).issubset(set(pseudocoords)), "dims must be a subset of pseudocoords keys"
         assert set(dims).issubset(set(obj_dims))
         coo = obj_coo.copy()
+        # coo = obj_coo.data[:] # new
         for dim in dims:
             if dim in pseudocoords:
                 assert len(obj_coords[dim]) == len(pseudocoords[dim]), f"pseudocoords[{dim}] must have the same length as obj_coords[{dim}]"
                 dim_coords = pseudocoords[dim]
                 coo[:,obj_dims.index(dim)] = np.array(dim_coords)[np.array(obj_coords[dim]).searchsorted(obj_coo[:,obj_dims.index(dim)], sorter=list(range(len(obj_coords[dim]))))]
+                # coo[obj_dims.index(dim)] = np.array(dim_coords)[np.array(obj_coords[dim]).searchsorted(obj_coo[:,obj_dims.index(dim)], sorter=list(range(len(obj_coords[dim]))))] # new
+        coo = Coo(coo)
         coords = {}
         for dim in obj_coords:
             if dim in pseudocoords:
@@ -700,7 +889,7 @@ class array:
         else:
             int_coords = [int(''.join(filter(str.isdigit, elem))) for elem in obj.coords[dim]]
             assert len(set(int_coords)) == len(int_coords), "There are duplicate values. You can use use_index=True to use the index instead of getting the numbers from string."
-        coo_coords_dict =  obj._coords_replace(obj.coo,obj.dims,obj.coords, dim=[dim], pseudocoords={dim:int_coords})
+        coo_coords_dict =  obj._coords_replace(obj.coo,obj.dims,obj.coords, dims=[dim], pseudocoords={dim:int_coords})
         return dict(coo=coo_coords_dict['coo'], dims=obj.dims, coords=coo_coords_dict['coords'], dtype=obj.dtype, order=obj.order)
 
     def str2int(self, dim:str=None, use_index:bool=False, include_dense:bool=False):
@@ -719,47 +908,66 @@ class array:
         else:
             return array(**array_dict)
 
+    @staticmethod
+    def _elems2datetime(obj, dim:str=None, reference_date:str='01-01-2030', freq:str='H'):
+        assert dim in obj.dims
+        len_coord = len(obj.coords[dim])
+        start_date = pd.to_datetime(reference_date)
+        drange = pd.date_range(start_date, periods=len_coord, freq=freq)
+        coo_coords_dict =  obj._coords_replace(obj.coo,obj.dims,obj.coords, dims=[dim], pseudocoords={dim:drange.to_numpy()})
+        return dict(coo=coo_coords_dict['coo'], dims=obj.dims, coords=coo_coords_dict['coords'], dtype=obj.dtype, order=obj.order)
 
+    def elems2datetime(self, dim:str=None, reference_date:str='01-01-2030', freq:str='H'):
+        array_dict = self._elems2datetime(self, dim=dim, reference_date=reference_date, freq=freq)
+        return array(**array_dict)
+
+    def _make_zero_coo(self):
+        '''
+        select the first element of each dim and set value as zero. The results is an numpy array with one row.
+        '''
+        coo = np.array([], dtype=object).reshape((0,len(self.dims)+1))
+        # coo = Coo(np.array([], dtype=object).reshape((0,len(self.dims)+1))) # new
+        return coo
 
     ########## Methods for converting arrays to all integers ##########
 
-    def _int_coords(self):
-        coo = self.coo.copy()
-        int_coords = {}
-        for dim in self.dims:
-            int_dim_coords = list(range(len(self.coords[dim])))
-            int_coords[dim] = int_dim_coords
-            coo[:, self.dims.index(dim)] = np.array(int_dim_coords)[np.array(self.coords[dim]).searchsorted(self.coo[:, self.dims.index(dim)], sorter=int_dim_coords)]
-        return dict(coo=coo, coords=int_coords)
+    # def _int_coords(self):
+    #     coo = self.coo.copy()
+    #     int_coords = {}
+    #     for dim in self.dims:
+    #         int_dim_coords = list(range(len(self.coords[dim])))
+    #         int_coords[dim] = int_dim_coords
+    #         coo[:, self.dims.index(dim)] = np.array(int_dim_coords)[np.array(self.coords[dim]).searchsorted(self.coo[:, self.dims.index(dim)], sorter=int_dim_coords)]
+    #     return dict(coo=coo, coords=int_coords)
 
-    def all_int(self):
-        '''
-        Returns an array with all coordinates integers.
-        '''
-        coo_coords_dict = self._int_coords()
-        return array(coo=coo_coords_dict['coo'], dims=self.dims, coords=coo_coords_dict['coords'], dtype=self.dtype, order=self.order)
+    # def all_int(self):
+    #     '''
+    #     Returns an array with all coordinates integers.
+    #     '''
+    #     coo_coords_dict = self._int_coords()
+    #     return array(coo=coo_coords_dict['coo'], dims=self.dims, coords=coo_coords_dict['coords'], dtype=self.dtype, order=self.order)
 
-    def dense_new(self):
-        values = self.coo[:,-1]
-        hlistd = []
-        for t in self.dindex_:
-            hlistd.append(hash(t))
-        hlistc = []
-        for t in self.cindex_:
-            hlistc.append(hash(t))
+    # def dense_new(self):
+    #     values = self.coo[:,-1]
+    #     hlistd = []
+    #     for t in self.dindex_:
+    #         hlistd.append(hash(t))
+    #     hlistc = []
+    #     for t in self.cindex_:
+    #         hlistc.append(hash(t))
 
-        dindex = np.array(hlistd)
-        cindex = np.array(hlistc)
+    #     dindex = np.array(hlistd)
+    #     cindex = np.array(hlistc)
 
-        dindex_arg = np.argsort(dindex)
-        dindex_ = dindex[dindex_arg]
-        cindex_arg = np.argsort(cindex)
-        cindex_ = cindex[cindex_arg]
-        ix = np.searchsorted(dindex_, cindex_)
-        ixa = dindex_arg[ix]
-        zeros = np.zeros((len(self.dindex_),), dtype='float64')
-        zeros[ixa] = values[cindex_arg]
-        return zeros.reshape(self.shape)
+    #     dindex_arg = np.argsort(dindex)
+    #     dindex_ = dindex[dindex_arg]
+    #     cindex_arg = np.argsort(cindex)
+    #     cindex_ = cindex[cindex_arg]
+    #     ix = np.searchsorted(dindex_, cindex_)
+    #     ixa = dindex_arg[ix]
+    #     zeros = np.zeros((len(self.dindex_),), dtype='float64')
+    #     zeros[ixa] = values[cindex_arg]
+    #     return zeros.reshape(self.shape)
 
 
 
@@ -771,6 +979,7 @@ def concat(arrays:list):
     assert all([set(arr.dims) == set(dims) for arr in arrays]), "All array must have the same dimensions"
     assert all([arr.dtype == dtype for arr in arrays]), "All array must have the same dtype"
     coo = np.vstack([arr.coo for arr in arrays])
+    # coo = Coo([np.vstack([arr.coo.data[i] for arr in arrays]).reshape(-1) for i in range(len(dims) + 1)]) # new
     coords = reduce(lambda x,y: array(coo=x.coo, dims=x.dims, coords=x._union_coords(y,x.dims), dtype=x.dtype, order=x.order), arrays).coords
     return array(coo=coo, dims=dims, coords=coords, dtype=arrays[0].dtype, order=arrays[0].order)
 
@@ -807,6 +1016,7 @@ def from_pandas(df, dims: list=None, dtype:str='float64', order=None):
         dt = dt[dims]
         dt.insert(len(dt.columns), col.name, col)
         coo = dt.to_numpy()
+        # coo = Coo(dt.to_numpy()) # new
     else:
         df = df[df['value'] != 0]
         dt = df[df['value'] != np.nan]
@@ -814,6 +1024,7 @@ def from_pandas(df, dims: list=None, dtype:str='float64', order=None):
         dt = dt[dims]
         dt.insert(len(dt.columns), col.name, col)
         coo = dt.to_numpy()
+        # coo = Coo(dt.to_numpy()) # new
     return array(coo=coo,dims=dims,coords=coords, dtype=dtype, order=order)
 
 def from_feather(path, with_table=False):
@@ -822,6 +1033,7 @@ def from_feather(path, with_table=False):
     restored_meta_json = restored_table.schema.metadata[custom_meta_key.encode()]
     restored_meta = json.loads(restored_meta_json)
     coo = restored_table.to_pandas().to_numpy()
+    # coo = Coo(restored_table.to_pandas().to_numpy()) # new
     if with_table:
         return array(coo=coo, **restored_meta), restored_table
     return array(coo=coo, **restored_meta)
