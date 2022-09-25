@@ -45,21 +45,21 @@ def _parallelize(function=None, inputdict: dict = None, nr_workers=1, verbose=Fa
         for i in range(nr_workers):
             if kargs:
                 processes[i] = Process(target=parallel_func,
-                                       args=(
-                                           dc,
-                                           queue,
-                                           queue_lock,
-                                           function,
-                                           kargs,
-                                       ))
+                                        args=(
+                                            dc,
+                                            queue,
+                                            queue_lock,
+                                            function,
+                                            kargs,
+                                        ))
             else:
                 processes[i] = Process(target=parallel_func,
-                                       args=(
-                                           dc,
-                                           queue,
-                                           queue_lock,
-                                           function,
-                                       ))
+                                        args=(
+                                            dc,
+                                            queue,
+                                            queue_lock,
+                                            function,
+                                        ))
             processes[i].start()
         for i in range(nr_workers):
             processes[i].join()
@@ -91,3 +91,30 @@ def parallel_func(dc, queue=None, queue_lock=None, function=None, kargs={}):
         queue_lock.release()
         obj = function(**item, **kargs)
         dc[key] = obj
+
+# import numpy as np
+# from numba import njit
+# from numba import types
+# from numba.typed import Dict
+
+# # Make key type with two 32-bit integer items.
+# key_type = types.UniTuple(types.int32, 2)
+
+# # Make array type.  Type-expression is not supported in jit functions.
+# float_array = types.float64[:]
+
+# @njit
+# def foo():
+#     list_out=[]
+#     # Make dictionary
+#     d = Dict.empty(
+#         key_type=key_type, 
+#         value_type=float_array,
+#     )
+#     # an example of how I would like to fill the dictionary
+#     d[(1,1)] = np.arange(3, dtype=np.float64)
+#     d[(2,2)] = np.arange((3, 6), dtype=np.float64)
+#     list_out.append(d[(2,2)])
+#     return list_out
+
+# list_out = foo()
