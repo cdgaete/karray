@@ -1,12 +1,11 @@
+ 
 
 __version__ = "2024.3.7"
 __author__ = 'Carlos Gaete-Morales'
 
 __all__ = [
     'Array',
-    'Long',
     'concat',
-    'numpy_to_long',
     'from_pandas',
     'from_polars',
     'from_feather_to_dict',
@@ -20,9 +19,7 @@ __all__ = [
 
 from .source_code import (
     Array,
-    Long,
     concat,
-    numpy_to_long,
     from_pandas,
     from_polars,
     from_feather_to_dict,

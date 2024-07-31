@@ -1,12 +1,11 @@
 import unittest
 import numpy as np
-from karray import Array, Long, settings
+from karray import Array, settings
 
 
 class TestArrayOperations(unittest.TestCase):
     def setUp(self):
-        self.long = Long(
-            index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10., 20.])
+        self.long = ({'dim1': ['a', 'b'], 'dim2': [1, 2]}, [10., 20.])
         self.coords = {'dim1': ['a', 'b'], 'dim2': [1, 2]}
         self.arr = Array(data=self.long, coords=self.coords)
 
@@ -44,12 +43,9 @@ class TestArrayOperations(unittest.TestCase):
         self.assertTrue(np.array_equal(
             renamed_arr.todense(), self.arr.todense()))
 
-    def test_drop(self):
-        dropped_arr = self.arr.drop('dim1')
-        self.assertEqual(dropped_arr.dims, ['dim2'])
-        self.assertEqual(dropped_arr.shape, [2])
-        self.assertTrue(np.array_equal(
-            dropped_arr.todense(), np.array([10, 20])))
+    def test_drop_error(self):
+        with self.assertRaises(AssertionError):
+            self.arr.drop('dim1')
 
     def test_to_dict_sparse(self):
         items = self.arr.to_dict(dense=False)
@@ -71,5 +67,5 @@ class TestArrayOperations(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    settings.data_type = 'sparse'
+    settings.data_obj = 'sparse'
     unittest.main()

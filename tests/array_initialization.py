@@ -1,10 +1,10 @@
 import unittest
 import numpy as np
-from karray import Array, Long, settings
+from karray import Array, settings
 
 class TestArrayInitialization(unittest.TestCase):
     def setUp(self):
-        self.long = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
+        self.long = ({'dim1': ['a', 'b'], 'dim2': [1, 2]}, [10, 20])
         self.coords = {'dim1': ['a', 'b'], 'dim2': [1, 2]}
         self.arr = Array(data=self.long, coords=self.coords)
     
@@ -45,5 +45,5 @@ class TestArrayInitialization(unittest.TestCase):
         self.assertTrue(np.array_equal(arr.todense(), np.array([[10, 0], [0, 20]])))
 
 if __name__ == '__main__':
-    settings.data_type = 'sparse'
+    settings.data_obj = 'sparse'
     unittest.main()

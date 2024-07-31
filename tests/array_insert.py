@@ -65,5 +65,5 @@ class TestArrayInsert(unittest.TestCase):
             self.array_obj.insert(**new_data)
 
 if __name__ == '__main__':
-    settings.data_type = 'sparse'
+    settings.data_obj = 'sparse'
     unittest.main()

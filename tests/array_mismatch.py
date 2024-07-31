@@ -49,5 +49,5 @@ class TestKarray(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    settings.data_type = 'dense'
+    settings.data_obj = 'dense'
     unittest.main()

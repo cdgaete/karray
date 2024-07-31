@@ -8,8 +8,7 @@ class TestArrayChoice(unittest.TestCase):
     def setUp(self):
         # create an Array object for testing
         index = dict(week=[0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3],
-                     day=[0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1,
-                          0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1],
+                     day=[0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1],
                      trip=[1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3])
         value = [0.1, 0.3, 0.6,
                  0.5, 0.3, 0.2,
@@ -36,5 +35,5 @@ class TestArrayChoice(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    settings.data_type = 'dense'
+    settings.data_obj = 'dense'
     unittest.main()

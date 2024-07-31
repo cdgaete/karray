@@ -1,7 +1,7 @@
 import unittest
 import os
 import numpy as np
-from karray import Array, Long, from_pandas, from_polars, from_feather, from_csv, settings
+from karray import Array, from_pandas, from_polars, from_feather, from_csv, settings
 
 
 class TestArrayFileHandling(unittest.TestCase):
@@ -10,7 +10,7 @@ class TestArrayFileHandling(unittest.TestCase):
         self.data_dir = data_dir
         os.makedirs(data_dir, exist_ok=True)
 
-        self.long = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
+        self.long = ({'dim1': ['a', 'b'], 'dim2': [1, 2]}, [10, 20])
         self.coords = {'dim1': ['a', 'b'], 'dim2': [1, 2]}
         self.arr = Array(data=self.long, coords=self.coords)
 
@@ -75,5 +75,5 @@ class TestArrayFileHandling(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    settings.data_type = 'sparse'
+    settings.data_obj = 'sparse'
     unittest.main()
