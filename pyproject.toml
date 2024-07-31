@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools >= 61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karray"
+description = "Lightweight labelled multidimensional arrays with NumPy arrays under the hood."
+readme = "README.md"
+license = { text = "MIT License" }
+authors = [{ name = "Carlos Gaete-Morales", email = "cdgaete@gmail.com" }]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering",
+]
+keywords = [
+    "ndarray",
+    "labeled",
+    "multidimensional",
+    "element-wise",
+    "dense",
+    "sparse",
+    "arrays",
+]
+
+requires-python = ">=3.7"
+
+dynamic = ["version"]
+
+dependencies = ["numpy>=1.22.4"]
+
+[project.optional-dependencies]
+io = ["pyarrow", "pandas", "polars"]
+pandas = ["pyarrow", "pandas"]
+polars = ["pyarrow", "polars"]
+sparse = ["sparse"]
+all = ["karray[io,sparse]"]
+
+[tool.setuptools.dynamic]
+version = { attr = "karray.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.urls]
+Documentation = "https://diw-evu.gitlab.io/karray"
+Source-code = "https://gitlab.com/diw-evu/karray"
+Issue-tracker = "https://gitlab.com/diw-evu/karray/issues"

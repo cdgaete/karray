@@ -1,0 +1,130 @@
+# mkdocs.yml
+site_name: "karray: labeled N-Dimentional arrays"
+site_url: https://gitlab.com/diw-evu/karray
+
+repo_url: https://gitlab.com/diw-evu/karray
+repo_name: Source Code
+
+docs_dir: ./docs
+
+nav:
+  - Overview: index.ipynb
+  - Getting started: getting_started.ipynb
+  - Installation: installation.md
+  - Source code: reference.md
+
+theme:
+  name: material
+  logo: images/karray.svg
+  icon:
+    repo: fontawesome/brands/git-alt
+
+  features:
+    # - navigation.tabs
+    - navigation.footer
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - navigation.sections
+    - announce.dismiss
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.annotation
+    - content.code.copy
+    - content.tooltips
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+    # - toc.integrate
+    # - header.autohide
+
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/link
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: purple
+      toggle:
+        icon: material/toggle-switch
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: lime
+      toggle:
+        icon: material/toggle-switch-off
+        name: Switch to system preference
+  font:
+    text: Roboto
+    code: Roboto Mono
+
+plugins:
+  - search
+  - awesome-pages
+  - git-revision-date-localized
+  - minify:
+      minify_html: true
+  - mknotebooks:
+      enable_default_jupyter_cell_styling: false
+      enable_default_pandas_dataframe_styling: true
+  - mkdocstrings:
+      handlers:
+        python:
+          import:
+            - https://docs.python.org/3/objects.inv
+            - https://installer.readthedocs.io/en/stable/objects.inv # demonstration purpose in the docs
+            - https://mkdocstrings.github.io/autorefs/objects.inv
+          options:
+            separate_signature: true
+            line_length: 60
+            modernize_annotations: true
+            show_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            docstring_style: google
+            docstring_section_style: table
+            show_docstring_description: true
+            show_docstring_classes: true
+            show_docstring_parameters: true
+            show_docstring_raises: true
+            show_docstring_yields: true
+            members_order: source
+            parameter_headings: true
+            summary: true
+            filters: ["!^_", "^__init__$"]
+            show_labels: true
+            show_root_toc_entry: true
+            show_root_full_path: true
+            # show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            docstring_options:
+              ignore_init_summary: true
+              trim_doctest_flags: true
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - codehilite
+  - admonition
+  - pymdownx.superfences:
+      preserve_tabs: true
+  - pymdownx.highlight:
+      extend_pygments_lang:
+        - name: pycon3
+          lang: pycon
+          options:
+            python3: true
+  - pymdownx.saneheaders
+  - attr_list
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+
+copyright: |
+  &copy; 2024 <a href="https://github.com/cdgaete"  target="_blank" rel="noopener">Carlos Gaete-Morales</a>

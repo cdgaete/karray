@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="50" height="50">
+  <text x="50%" y="50%" text-anchor="middle" fill="gray">
+    <tspan font-size="48" alignment-baseline="middle">[</tspan>
+    <tspan font-size="36" alignment-baseline="middle">k</tspan>
+    <tspan font-size="48" alignment-baseline="middle">]</tspan>
+  </text>
+</svg>
