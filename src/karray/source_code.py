@@ -158,7 +158,7 @@ class Long:
             >>> value = [10, 20]
             >>> long_obj = Long(index, value)
             >>> long_obj
-            Long(index={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])}, value=array([10, 20]))
+            Long(index={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)}, value=array([10, 20]))
 
             ```
         """
@@ -212,7 +212,7 @@ class Long:
             ```python
             >>> long_obj = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
             >>> repr(long_obj)
-            "Long(index={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])}, value=array([10, 20]))"
+            "Long(index={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)}, value=array([10, 20]))"
 
             ```
         """
@@ -522,7 +522,7 @@ class Long:
             >>> for item in long_obj.items():
             ...     print(item)
             ('dim1', array(['a', 'b'], dtype=object))
-            ('dim2', array([1, 2]))
+            ('dim2', array([1, 2], dtype=int32))
             ('value', array([10, 20]))
 
             ```
@@ -555,7 +555,7 @@ class Long:
             >>> long_obj = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
             >>> subset_long_obj = long_obj['dim1', ['a']]
             >>> subset_long_obj.index
-            {'dim1': array(['a'], dtype=object), 'dim2': array([1])}
+            {'dim1': array(['a'], dtype=object), 'dim2': array([1], dtype=int32)}
             >>> subset_long_obj.value
             array([10])
 
@@ -1216,7 +1216,7 @@ class Array:
             >>> long = Long(index={'dim1': ['a', 'a'], 'dim2': [1, 2]}, value=[10, 20])
             >>> arr = Array(data=long)
             >>> repr(arr)
-            "Array(data=array([[10, 20]]), coords={'dim1': array(['a'], dtype=object), 'dim2': array([1, 2])})"
+            "Array(data=array([[10, 20]]), coords={'dim1': array(['a'], dtype=object), 'dim2': array([1, 2], dtype=int32)})"
 
             ```
         """
@@ -1277,7 +1277,7 @@ class Array:
             >>> sort_coords = True
             >>> arr = Array(coords=coords)
             >>> arr._reorder_coords(coords, order_preference, sort_coords)
-            {'dim2': array([1, 2]), 'dim1': array(['a', 'b'], dtype=object)}
+            {'dim2': array([1, 2]), 'dim1': array(['a', 'b'], dtype='<U1')}
 
             ```
         """
@@ -1311,7 +1311,7 @@ class Array:
             >>> keep_zeros = False
             >>> arr = Array(data=long)
             >>> arr._reorder_long(long, order, keep_zeros)
-            Long(index={'dim2': array([1]), 'dim1': array(['a'], dtype=object)}, value=array([10]))
+            Long(index={'dim2': array([1], dtype=int32), 'dim1': array(['a'], dtype=object)}, value=array([10]))
 
             ```
         """
@@ -1376,7 +1376,7 @@ class Array:
             >>> coords = {'dim1': np.array(['a', 'b']), 'dim2': np.array([1, 2])}
             >>> arr = Array(data=long, coords=coords)
             >>> arr.long
-            Long(index={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])}, value=array([10, 20]))
+            Long(index={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)}, value=array([10, 20]))
 
             ```
         """
@@ -1553,7 +1553,7 @@ class Array:
             >>> arr.dims
             ['dim1', 'dim2']
             >>> arr.coords
-            {'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])}
+            {'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)}
 
             ```
         """
@@ -1863,7 +1863,7 @@ class Array:
             >>> long = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
             >>> coords = {'dim1': ['a', 'b'], 'dim2': [1, 2]}
             >>> Array._reorder(long, coords, reorder=['dim2', 'dim1'])
-            {'data': Long(index={'dim2': array([1, 2]), 'dim1': array(['a', 'b'], dtype=object)}, value=array([10, 20])), 'coords': {'dim2': [1, 2], 'dim1': ['a', 'b']}}
+            {'data': Long(index={'dim2': array([1, 2], dtype=int32), 'dim1': array(['a', 'b'], dtype=object)}, value=array([10, 20])), 'coords': {'dim2': [1, 2], 'dim1': ['a', 'b']}}
 
             ```
         """
@@ -1900,7 +1900,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> arr.reorder(reorder=['dim2', 'dim1'])
             Array(data=array([[10,  0],
-                   [ 0, 20]]), coords={'dim2': array([1, 2]), 'dim1': array(['a', 'b'], dtype=object)})
+                   [ 0, 20]]), coords={'dim2': array([1, 2], dtype=int32), 'dim1': array(['a', 'b'], dtype=object)})
 
             ```
         """
@@ -2030,7 +2030,7 @@ class Array:
             >>> uniondims
             ['dim1', 'dim2']
             >>> arr1._union_coords(arr2, uniondims)
-            (True, False, {'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+            (True, False, {'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2192,7 +2192,7 @@ class Array:
             >>> arr1._pre_operation_with_array(arr2)
             (array([[10,  0],
                    [ 0, 20]]), array([[30,  0],
-                   [ 0, 40]]), {'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0, 40]]), {'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2257,7 +2257,7 @@ class Array:
             >>> coords = {'dim1': ['a', 'b'], 'dim2': [1, 2]}
             >>> arr1._post_operation(resulting_array, coords)
             Array(data=array([[40.,  0.],
-                   [ 0., 60.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0., 60.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2338,10 +2338,10 @@ class Array:
             >>> arr2 = Array(data=long2, coords=coords2)
             >>> arr1 + arr2
             Array(data=array([[40.,  0.],
-                   [ 0., 60.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0., 60.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 + 5
             Array(data=array([[15.,  5.],
-                   [ 5., 25.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 5., 25.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2376,10 +2376,10 @@ class Array:
             >>> arr2 = Array(data=long2, coords=coords2)
             >>> arr1 * arr2
             Array(data=array([[300.,   0.],
-                   [  0., 800.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [  0., 800.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 * 5
             Array(data=array([[ 50.,   0.],
-                   [  0., 100.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [  0., 100.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2414,10 +2414,10 @@ class Array:
             >>> arr2 = Array(data=long2, coords=coords2)
             >>> arr1 - arr2
             Array(data=array([[-20.,   0.],
-                   [  0., -20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [  0., -20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 - 5
             Array(data=array([[ 5., -5.],
-                   [-5., 15.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [-5., 15.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2452,10 +2452,10 @@ class Array:
             >>> arr2 = Array(data=long2, coords=coords2)
             >>> arr1 / arr2
             Array(data=array([[0.33333333, 0.        ],
-                   [0.        , 0.33333333]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [0.        , 0.33333333]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 / 5
             Array(data=array([[2., 0.],
-                   [0., 4.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [0., 4.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2487,7 +2487,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> 5 + arr
             Array(data=array([[15.,  5.],
-                   [ 5., 25.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 5., 25.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2512,7 +2512,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> 5 * arr
             Array(data=array([[ 50.,   0.],
-                   [  0., 100.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [  0., 100.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2537,7 +2537,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> 5 - arr
             Array(data=array([[ -5.,   5.],
-                   [  5., -15.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [  5., -15.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2562,7 +2562,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> 100 / arr
             Array(data=array([[10.        ,  5.        ],
-                   [ 3.33333333,  2.5       ]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 3.33333333,  2.5       ]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2584,7 +2584,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> -arr
             Array(data=array([[-10.,   0.],
-                   [  0., -20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [  0., -20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2604,7 +2604,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> +arr
             Array(data=array([[10.,  0.],
-                   [ 0., 20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0., 20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2630,10 +2630,10 @@ class Array:
             >>> arr2 = Array(data=long2, coords=coords2)
             >>> arr1 == arr2
             Array(data=array([[False, False],
-                   [False, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [False, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 == 10
             Array(data=array([[ True, False],
-                   [False, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [False, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2665,10 +2665,10 @@ class Array:
             >>> arr2 = Array(data=data2, coords=coords2)
             >>> arr1 != arr2
             Array(data=array([[ True,  True],
-                   [ True,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ True,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 != 10
             Array(data=array([[False,  True],
-                   [ True,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ True,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2700,10 +2700,10 @@ class Array:
             >>> arr2 = Array(data=data2, coords=coords2)
             >>> arr1 < arr2
             Array(data=array([[False,  True],
-                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 < 15
             Array(data=array([[ True,  True],
-                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2732,7 +2732,7 @@ class Array:
             >>> arr = Array(data=data, coords=coords)
             >>> 5 < arr
             Array(data=array([[ True, False],
-                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2760,10 +2760,10 @@ class Array:
             >>> arr2 = Array(data=long2, coords=coords2)
             >>> arr1 <= arr2
             Array(data=array([[False,  True],
-                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 <= 10
             Array(data=array([[ True,  True],
-                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2792,7 +2792,7 @@ class Array:
             >>> arr = Array(data=data, coords=coords)
             >>> 10 <= arr
             Array(data=array([[ True, False],
-                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2820,10 +2820,10 @@ class Array:
             >>> arr2 = Array(data=data2, coords=coords2)
             >>> arr1 > arr2
             Array(data=array([[False, False],
-                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 > 15
             Array(data=array([[False, False],
-                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2852,7 +2852,7 @@ class Array:
             >>> arr = Array(data=dense, coords=coords)
             >>> 15 > arr
             Array(data=array([[ True, False],
-                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2879,10 +2879,10 @@ class Array:
             >>> arr2 = Array(data=long2, coords=coords)
             >>> arr1 >= arr2
             Array(data=array([[False,  True],
-                   [ True,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ True,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 >= 10
             Array(data=array([[ True, False],
-                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [False,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2911,7 +2911,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> 10 >= arr
             Array(data=array([[ True,  True],
-                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ True, False]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2937,10 +2937,10 @@ class Array:
             >>> arr2 = Array(data=long2, coords=coords)
             >>> arr1 & arr2
             Array(data=array([[0., 0.],
-                   [0., 0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [0., 0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 & True
             Array(data=array([[0., 0.],
-                   [0., 0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [0., 0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2968,7 +2968,7 @@ class Array:
             >>> arr = Array(data=long)
             >>> True & arr
             Array(data=array([[0., 0.],
-                   [0., 0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [0., 0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -2995,10 +2995,10 @@ class Array:
             >>> arr2 = Array(data=long2, coords=coords)
             >>> arr1 | arr2
             Array(data=array([[30.,  0.],
-                   [ 0., 30.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0., 30.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> arr1 | 0
             Array(data=array([[10.,  0.],
-                   [ 0., 20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0., 20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3026,7 +3026,7 @@ class Array:
             >>> arr = Array(data=long)
             >>> True | arr
             Array(data=array([[11.,  1.],
-                   [ 1., 21.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 1., 21.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3048,7 +3048,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> ~arr
             Array(data=array([[-11.,  -1.],
-                   [ -1., -21.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ -1., -21.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3077,7 +3077,7 @@ class Array:
             >>> long = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
             >>> arr = Array(data=long, coords=coords)
             >>> arr.any()
-            True
+            np.True_
 
             ```
         """
@@ -3096,7 +3096,7 @@ class Array:
             >>> long = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
             >>> arr = Array(data=long, coords=coords)
             >>> arr.all()
-            False
+            np.False_
 
             ```
         """
@@ -3118,7 +3118,7 @@ class Array:
             >>> long = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10., 20.])
             >>> arr = Array(data=long, coords=coords)
             >>> arr.to_dict(dense=True)
-            {'dim1': array(['a', 'a', 'b', 'b'], dtype=object), 'dim2': array([1, 2, 1, 2]), 'value': array([10.,  0.,  0., 20.])}
+            {'dim1': array(['a', 'a', 'b', 'b'], dtype=object), 'dim2': array([1, 2, 1, 2], dtype=int32), 'value': array([10.,  0.,  0., 20.])}
 
             ```
         """
@@ -3330,7 +3330,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> new_arr = arr.shrink(dim1=['a'], dim2=[1])
             >>> new_arr
-            Array(data=array([[10]]), coords={'dim1': array(['a'], dtype=object), 'dim2': array([1])})
+            Array(data=array([[10]]), coords={'dim1': array(['a'], dtype=object), 'dim2': array([1], dtype=int32)})
 
             ```
         """
@@ -3371,12 +3371,12 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> arr
             Array(data=array([[10.,  0.],
-                   [ 0., 20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0., 20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
             >>> new_arr = arr.add_elem(dim1=['c'], dim2=[3])
             >>> new_arr
             Array(data=array([[10.,  0.,  0.],
                    [ 0., 20.,  0.],
-                   [ 0.,  0.,  0.]]), coords={'dim1': array(['a', 'b', 'c'], dtype=object), 'dim2': array([1, 2, 3])})
+                   [ 0.,  0.,  0.]]), coords={'dim1': array(['a', 'b', 'c'], dtype=object), 'dim2': array([1, 2, 3], dtype=int32)})
 
             ```
         """
@@ -3410,7 +3410,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> reduced_arr = arr.reduce('dim1', aggfunc='sum')
             >>> reduced_arr
-            Array(data=array([10., 20.]), coords={'dim2': array([1, 2])})
+            Array(data=array([10., 20.]), coords={'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3451,7 +3451,7 @@ class Array:
             >>> shifted_arr = arr._shift_one_dim('dim1', count=1, fill_value=0)
             >>> shifted_arr
             Array(data=array([[ 0.,  0.],
-                   [10.,  0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [10.,  0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3508,7 +3508,7 @@ class Array:
             >>> shifted_arr = arr.shift(dim1=1, dim2=-1, fill_value=0)
             >>> shifted_arr
             Array(data=array([[0., 0.],
-                   [0., 0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [0., 0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3539,7 +3539,7 @@ class Array:
             >>> rolled_arr = arr._roll_one_dim('dim1', count=1)
             >>> rolled_arr
             Array(data=array([[ 0., 20.],
-                   [10.,  0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [10.,  0.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3567,7 +3567,7 @@ class Array:
             >>> rolled_arr = arr.roll(dim1=1, dim2=-1)
             >>> rolled_arr
             Array(data=array([[20.,  0.],
-                   [ 0., 10.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0., 10.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3612,7 +3612,7 @@ class Array:
 
             >>> new_arr
             Array(data=array([[[1., 0.],
-                    [0., 2.]]]), coords={'dim3': array(['c'], dtype=object), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                    [0., 2.]]]), coords={'dim3': array(['c'], dtype=object), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             >>> # Case 2: dict of dict
 
@@ -3626,7 +3626,7 @@ class Array:
 
             >>> new_arr
             Array(data=array([[[1., 0.],
-                    [0., 2.]]]), coords={'dim3': array(['c'], dtype=object), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                    [0., 2.]]]), coords={'dim3': array(['c'], dtype=object), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             >>> # Case 4: list of dims (str)
 
@@ -3645,7 +3645,7 @@ class Array:
                     [0., 0.]],
             <BLANKLINE>
                    [[0., 0.],
-                    [0., 2.]]]), coords={'dim3': array(['a:1', 'a:2', 'b:1', 'b:2'], dtype=object), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                    [0., 2.]]]), coords={'dim3': array(['a:1', 'a:2', 'b:1', 'b:2'], dtype='<U13'), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             >>> # Case 5: types
 
@@ -3654,7 +3654,7 @@ class Array:
             >>> new_arr = arr.insert(dim3=np.dtype('int64'))
 
             >>> new_arr
-            Array(data=array([], shape=(0, 0, 0)), coords={'dim3': array([]), 'dim1': array([]), 'dim2': array([])})
+            Array(data=array([], shape=(0, 0, 0), dtype=float64), coords={'dim3': array([], dtype=int64), 'dim1': array([], dtype=float64), 'dim2': array([], dtype=float64)})
 
             ```
         """
@@ -3747,7 +3747,7 @@ class Array:
             >>> new_arr = arr.add_dim(x=0)
             >>> new_arr
             Array(data=array([[[10,  0],
-                    [ 0, 20]]]), coords={'x': array([0]), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                    [ 0, 20]]]), coords={'x': array([0], dtype=int32), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3771,7 +3771,7 @@ class Array:
             >>> new_arr = arr.rename(dim1='new_dim1')
             >>> new_arr
             Array(data=array([[10.,  0.],
-                   [ 0., 20.]]), coords={'new_dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0., 20.]]), coords={'new_dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3803,7 +3803,7 @@ class Array:
             >>> arr = Array(data=long, coords=coords)
             >>> new_arr = arr.drop('dim1')
             >>> new_arr
-            Array(data=array([10, 20]), coords={'dim2': array([1, 2])})
+            Array(data=array([10, 20]), coords={'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3856,7 +3856,7 @@ class Array:
             >>> rounded_arr = arr_with_decimals.round(decimals=1)
             >>> rounded_arr
             Array(data=array([[10.1,  0. ],
-                   [ 0. , 20.5]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ 0. , 20.5]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3890,7 +3890,7 @@ class Array:
             <BLANKLINE>
                    [[ 0,  0],
                     [ 0, 20]]]), coords={'date': array(['2022-01-01T00:00:00.000000000', '2022-01-02T00:00:00.000000000'],
-                  dtype='datetime64[ns]'), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                  dtype='datetime64[ns]'), 'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3948,7 +3948,7 @@ class Array:
             >>> empty_arr = arr.empty()
             >>> empty_arr
             Array(data=array([[0, 0],
-                   [0, 0]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [0, 0]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -3973,7 +3973,7 @@ class Array:
             >>> chosen_arr = arr.choice(dim='dim1', seed=42)
             >>> chosen_arr
             Array(data=array([[False, False],
-                   [ True,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [ True,  True]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -4006,7 +4006,7 @@ class Array:
                     [ 0.,  0.]],
             <BLANKLINE>
                    [[ 0.,  0.],
-                    [20., 20.]]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2]), 'new_dim': array(['x', 'y'], dtype=object)})
+                    [20., 20.]]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32), 'new_dim': array(['x', 'y'], dtype=object)})
 
             ```
         """
@@ -4037,7 +4037,7 @@ class Array:
             >>> result_arr = arr.ufunc(dim='dim1', func=np.sum, keepdims=True)
             >>> result_arr
             Array(data=array([[10., 20.],
-                   [10., 20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+                   [10., 20.]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
             ```
         """
@@ -4116,7 +4116,7 @@ class Array:
             >>> arr._check_duplicate_indexes(indexes=np.array([0, 0, 1]), dims=['dim1', 'dim2'], coords=coords)
             Traceback (most recent call last):
             ...
-            ValueError: The Long object contains duplicate indexes. Duplicate indexes are: [{'loc': {'dim1': 'a', 'dim2': 1}, 'count': 2}].
+            ValueError: The Long object contains duplicate indexes. Duplicate indexes are: [{'loc': {'dim1': 'a', 'dim2': np.int32(1)}, 'count': np.int64(2)}].
 
             ```
         """
@@ -4152,15 +4152,16 @@ def concat(arrays: List[Array]) -> Array:
 
     Example:
         ```python
-        >>> coords = {'dim1': ['a', 'b'], 'dim2': [1, 2]}
+        >>> coords1 = {'dim1': ['a', 'b'], 'dim2': [1]}
         >>> long1 = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 1]}, value=[10, 20])
-        >>> arr1 = Array(data=long1, coords=coords)
+        >>> arr1 = Array(data=long1, coords=coords1)
+        >>> coords2 = {'dim1': ['a', 'b'], 'dim2': [2]}
         >>> long2 = Long(index={'dim1': ['a', 'b'], 'dim2': [2, 2]}, value=[30, 40])
-        >>> arr2 = Array(data=long2, coords=coords)
+        >>> arr2 = Array(data=long2, coords=coords2)
         >>> concatenated_arr = concat([arr1, arr2])
         >>> concatenated_arr
         Array(data=array([[10, 30],
-               [20, 40]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+               [20, 40]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
         ```
     """
@@ -4262,7 +4263,7 @@ def from_pandas(df: 'pd.DataFrame', coords: Union[Dict[str, np.ndarray], None] =
         >>> arr = from_pandas(df, coords)
         >>> arr
         Array(data=array([[10,  0],
-               [ 0, 20]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+               [ 0, 20]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
         ```
     """
@@ -4315,7 +4316,7 @@ def from_polars(df: 'pl.DataFrame', coords: Union[Dict[str, np.ndarray], None] =
         >>> arr = from_polars(df, coords)
         >>> arr
         Array(data=array([[10,  0],
-               [ 0, 20]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+               [ 0, 20]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
         ```
     """
@@ -4338,7 +4339,7 @@ def from_feather_to_dict(path: str, use_threads: bool = True, with_: Union[str, 
         ```python
         >>> array_dict = from_feather_to_dict('tests/data/array.feather', with_='pandas')
         >>> array_dict
-        {'data': ({'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])}, array([10, 20])), 'coords': {'dim1': ['a', 'b'], 'dim2': [1, 2]}}
+        {'data': ({'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)}, array([10, 20])), 'coords': {'dim1': ['a', 'b'], 'dim2': [1, 2]}}
 
         ```
     """
@@ -4381,7 +4382,7 @@ def from_feather(path: str, use_threads: bool = True, with_: str = 'pandas') -> 
         >>> arr = from_feather('tests/data/array.feather', with_='pandas')
         >>> arr
         Array(data=array([[10,  0],
-               [ 0, 20]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+               [ 0, 20]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
         ```
     """
@@ -4431,7 +4432,7 @@ def _csv_to_array(path: str, coords: Union[Dict[str, np.ndarray], None] = None, 
                 except ValueError:
                     dtype = np.object_
             if col == 'value':
-                assert dtype == float or dtype == int, f"Column named 'value' must be of type int or float. Got {dtype}"
+                assert dtype == float or dtype == int, f"Column named 'value' must be of type int or float. Got {dtype}"  # noqa: E721
                 value = np.loadtxt(
                     path, skiprows=1, delimiter=delimiter, usecols=i, dtype=dtype)
             else:
@@ -4493,7 +4494,7 @@ def from_csv(path: str, coords: Union[Dict[str, np.ndarray], None] = None, delim
         >>> arr = from_csv('tests/data/array.csv', coords=coords, with_='csv')
         >>> arr
         Array(data=array([[10,  0],
-               [ 0, 20]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
+               [ 0, 20]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2], dtype=int32)})
 
         ```
     """
@@ -4654,7 +4655,7 @@ def _test_type_and_update(item: Union[List[str], List[int], List[float], List[np
     Example:
         ```python
         >>> _test_type_and_update([1, 2, 3])
-        array([1, 2, 3])
+        array([1, 2, 3], dtype=int32)
         >>> _test_type_and_update(['a', 'b', 'c'])
         array(['a', 'b', 'c'], dtype=object)
 
