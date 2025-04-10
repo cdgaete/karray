@@ -162,30 +162,44 @@ class Long:
 
             ```
         """
-        value = _test_type_and_update_value(value)
+        # Only convert if necessary to avoid unnecessary copies
+        if not isinstance(value, np.ndarray):
+            value = _test_type_and_update_value(value)
+
         assert isinstance(index, dict), "Index must be a dictionary"
         dims = list(index)
         for dim in dims:
-            assert isinstance(index[dim], (list, np.ndarray)) or _isinstance_optional_pkgs(index[dim], ('pd.DatetimeIndex', 'pd.Categorical')
-                                                                                           ), "Index must be a dictionary with string keys and list, np.ndarray, pd.DatetimeIndex or pd.Categorical values"
-            index[dim] = _test_type_and_update(index[dim])
-        assert all([index[dim].size == value.size for dim in index]
-                   ), "Index and value arrays must have the same length"
+            assert isinstance(index[dim], (list, np.ndarray)) or _isinstance_optional_pkgs(index[dim], ('pd.DatetimeIndex', 'pd.Categorical')), "Index must be a dictionary with string keys and list, np.ndarray, pd.DatetimeIndex or pd.Categorical values"
+            # Only convert if not already a numpy array
+            if not isinstance(index[dim], np.ndarray):
+                index[dim] = _test_type_and_update(index[dim])
+
+        assert all([index[dim].size == value.size for dim in index]), "Index and value arrays must have the same length"
         assert all([isinstance(dim, str) for dim in index]), "Index must be a dictionary with string keys"
         assert 'value' not in index, "'value' can not be a dimension name as it is reserved"
+
+        # Only convert dtype if necessary
         self.long_dtype = settings.long_dtype
         if self.long_dtype is not None:
-            assert self.long_dtype in ["float16", "float32",
-                                       "float64"], "settings.long_dtype must be 'float16', 'float32' or 'float64'"
-            value = value.astype(self.long_dtype)
+            assert self.long_dtype in ["float16", "float32", "float64"], "settings.long_dtype must be 'float16', 'float32' or 'float64'"
+            if not issubclass(value.dtype.type, np.dtype(self.long_dtype).type):
+                value = value.astype(self.long_dtype)
+
         self.value = value
         self.index = index
         self.dims = list(self.index)
         self.rows_display = settings.rows_display
         self.decimals_display = settings.decimals_display
         self.oneshot_display = settings.oneshot_display
-        self.long_nbytes = _format_bytes(
-            sum([self.index[dim].nbytes for dim in self.index] + [self.value.nbytes]))
+        self._nbytes = None  # Lazy calculation for better memory efficiency
+
+    @property
+    def long_nbytes(self) -> str:
+        """Calculate and format the size of the Long object only when needed."""
+        if self._nbytes is None:
+            self._nbytes = _format_bytes(
+                sum([self.index[dim].nbytes for dim in self.index] + [self.value.nbytes]))
+        return self._nbytes
 
     def __repr__(self) -> str:
         """
@@ -303,40 +317,11 @@ class Long:
         return len(self.index)
 
     def insert(self, **kwargs: Dict[str, Union['np.dtype[Any]', type, str, int, Dict[str, Union[Dict[Any, Any], List[Union[np.ndarray, np.ndarray]]]]]]) -> 'Long':
-        """
-        Insert new dimensions into the Long object.
-
-        Args:
-            **kwargs: Keyword arguments specifying the new dimensions and their values. The keys represent
-                the names of the new dimensions, and the values can be of the following types:
-                - np.dtype or type: Specifies the data type of the new dimension. Only valid for empty arrays.
-                - str, int, or float: Specifies a single value for the new dimension.
-                - dict: Specifies a mapping between an existing dimension and the new dimension. The keys
-                  of the dict represent the existing dimension, and the values can be either a dict mapping
-                  old values to new values, or a list of two lists representing the old and new values.
-
-        Returns:
-            A new Long object with the inserted dimensions.
-
-        Raises:
-            AssertionError: If the new dimension names already exist in the existing dimensions,
-                the new dimensions items are not of the supported types, or the mapping between dimensions
-                is invalid.
-
-        Example:
-            ```python
-            >>> long_obj = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
-            >>> new_long_obj = long_obj.insert(dim3=1)
-            >>> new_long_obj.dims
-            ['dim3', 'dim1', 'dim2']
-
-            ```
-        """
-        assert all([dim not in self.dims for dim in kwargs]
-                   ), "new dimension names must not exist in the existing dimensions"
+        assert all([dim not in self.dims for dim in kwargs]), "new dimension names must not exist in the existing dimensions"
         assert all([isinstance(kwargs[dim], (str, int, float, dict, np.dtype, type))
                    for dim in kwargs]), "new dimensions items must be a str, int, float, dict, np.dtype or type"
-        # When dict is passed, it contains a map of old_dim -> new_dim as nested dict or a list of two lists.
+
+        # Process dict mappings (optimized to avoid unnecessary conversions)
         for dim in kwargs:
             if isinstance(kwargs[dim], dict):
                 value = kwargs[dim]
@@ -348,30 +333,32 @@ class Long:
                 else:
                     assert existing_dim in self.dims
                 assert isinstance(value[existing_dim], (dict, list))
+
                 if isinstance(existing_dim, str):
                     if isinstance(value[existing_dim], dict):
                         old_dim_items = list(value[existing_dim])
                         old_dim_items_set = set(old_dim_items)
                     elif isinstance(value[existing_dim], list):
-                        kwargs[dim][existing_dim][0] = _test_type_and_update(
-                            value[existing_dim][0])
-                        kwargs[dim][existing_dim][1] = _test_type_and_update(
-                            kwargs[dim][existing_dim][1])
+                        # Avoid unnecessary conversions if already numpy arrays
+                        if not isinstance(value[existing_dim][0], np.ndarray):
+                            kwargs[dim][existing_dim][0] = _test_type_and_update(value[existing_dim][0])
+                        if not isinstance(value[existing_dim][1], np.ndarray):
+                            kwargs[dim][existing_dim][1] = _test_type_and_update(value[existing_dim][1])
                         old_dim_items = kwargs[dim][existing_dim][0]
                         old_dim_items_set = set(old_dim_items)
-                    assert set(np.unique(self.index[existing_dim])).issubset(
-                        old_dim_items_set)
+                    assert set(np.unique(self.index[existing_dim])).issubset(old_dim_items_set)
                     assert len(old_dim_items) == len(old_dim_items_set)
                 elif isinstance(existing_dim, tuple):
                     if isinstance(value[existing_dim], dict):
                         raise NotImplementedError("TODO")
                     elif isinstance(value[existing_dim], list):
-                        kwargs[dim][existing_dim][1] = _test_type_and_update(
-                            kwargs[dim][existing_dim][1])
+                        if not isinstance(value[existing_dim][1], np.ndarray):
+                            kwargs[dim][existing_dim][1] = _test_type_and_update(value[existing_dim][1])
+
+        # Create the new index without unnecessary copies
         index = {}
         for new_dim in kwargs:
             value = kwargs[new_dim]
-            # when dtype or type object is passed, the addition of new dimenssion is only possible to a empty array.
             if isinstance(value, (np.dtype, type)):
                 assert self.value.size == 0, "new dimensions type setting cannot be performed to non-empty arrays"
                 idxarray = np.empty(self.size, dtype=value)
@@ -399,8 +386,7 @@ class Long:
                         v = value[existing_dim][1]
                         existing_dim_items = self.index[existing_dim]
                     else:
-                        raise Exception(
-                            f"type {type(value[existing_dim])} not implemented.")
+                        raise Exception(f"type {type(value[existing_dim])} not implemented.")
                     idxarray = np.array(v)[np.argsort(k)[np.searchsorted(
                         k, existing_dim_items, sorter=np.argsort(k))]]
                 elif isinstance(existing_dim, tuple):
@@ -420,11 +406,14 @@ class Long:
                         indexes = np.ravel_multi_index(index_index, shape)
                         idxarray = new_dim_elements[indexes]
                     else:
-                        raise Exception(
-                            f"type {type(value[existing_dim])} not implemented.")
+                        raise Exception(f"type {type(value[existing_dim])} not implemented.")
             index[new_dim] = idxarray
+
+        # Include existing dimensions - reuse existing arrays
         for dim in self.index:
             index[dim] = self.index[dim]
+
+        # Create a new Long using the existing value array
         return Long(index=index, value=self.value)
 
     def rename(self, **kwargs: str) -> 'Long':
@@ -453,12 +442,16 @@ class Long:
         """
         assert all([odim in self.dims for odim in kwargs])
         assert all([ndim not in self.dims for ndim in kwargs.values()])
+
+        # Create new index with renamed dimensions but reusing arrays
         index = {}
         for dim in self.dims:
             if dim in kwargs:
                 index[kwargs[dim]] = self.index[dim]
             else:
                 index[dim] = self.index[dim]
+
+        # Create a new Long using the existing value array
         return Long(index=index, value=self.value)
 
     def drop(self, dims: Union[str, List[str]]) -> 'Long':
@@ -485,17 +478,21 @@ class Long:
             ```
         """
         assert isinstance(dims, (str, list))
+
+        # Create new index without the dropped dimensions
         index = {}
         if isinstance(dims, str):
             assert dims in self.dims
             dims = [dims]
         elif isinstance(dims, list):
             assert all([dim in self.dims for dim in dims])
+
+        # Include only non-dropped dimensions - reuse existing arrays
         for dim in self.dims:
             if dim not in dims:
                 index[dim] = self.index[dim]
-        # TODO: this can be slow. Check if it can be optimized.
-        # Compare with _check_duplicate_indexes
+
+        # Check for duplicates in new index
         item_tuples = list(zip(*index.values()))
         if len(set(item_tuples)) == len(item_tuples):
             flag = True
@@ -506,7 +503,10 @@ class Long:
             first = item_tuples.index(most_common, 0)
             second = item_tuples.index(most_common, first+1)
             display_str = f"e.g.:\n  {tuple(index)} value\n{first} {item_tuples[first]} {self.value[first]}\n{second} {item_tuples[second]} {self.value[second]}"
+
         assert flag, f"Index items per row must be unique. By removing {dims} leads the existence of repeated indexes \n{display_str}\nIntead, you can use obj.reduce('{dims[0]}')\nWith an aggfunc: sum() by default"
+
+        # Create a new Long using the existing value array
         return Long(index=index, value=self.value)
 
     def items(self) -> Iterator[Tuple[str, np.ndarray]]:
@@ -527,10 +527,9 @@ class Long:
 
             ```
         """
-        dc = dict(**self.index)
-        dc.update(dict(value=self.value))
-        for k, v in dc.items():
-            yield (k, v)
+        # Use a dictionary comprehension to consolidate in one step
+        dc = {**self.index, 'value': self.value}
+        yield from dc.items()
 
     def __getitem__(self, item: Union[str, int, List[Any], np.ndarray, slice, Tuple[str, Union[List[Any], np.ndarray, slice]]]) -> 'Long':
         """
@@ -563,49 +562,74 @@ class Long:
             ```
         """
         assert isinstance(item, (str, int, list, np.ndarray, slice, tuple))
+
         if isinstance(item, int):
-            return Long(index={dim: self.index[dim][item] for dim in self.dims}, value=self.value[item])
+            # Single item indexing
+            # Use arrays directly to avoid large copies
+            return Long(index={dim: np.array([self.index[dim][item]]) for dim in self.dims},
+                       value=np.array([self.value[item]]))
+
         elif isinstance(item, list):
+            # Convert to array for more efficient indexing
             item = np.array(item, dtype=np.int32)
-            return Long(index={dim: self.index[dim][item] for dim in self.dims}, value=self.value[item])
+            return Long(index={dim: self.index[dim][item] for dim in self.dims},
+                       value=self.value[item])
+
         elif isinstance(item, np.ndarray):
             assert issubclass(item.dtype.type, (np.int16, np.int32, np.int64)) or issubclass(item.dtype.type, np.bool_)
-            return Long(index={dim: self.index[dim][item] for dim in self.dims}, value=self.value[item])
+            return Long(index={dim: self.index[dim][item] for dim in self.dims},
+                       value=self.value[item])
+
         elif isinstance(item, slice):
-            return Long(index={dim: self.index[dim][item] for dim in self.dims}, value=self.value[item])
+            # Apply same slice to all dimensions and value
+            return Long(index={dim: self.index[dim][item] for dim in self.dims},
+                       value=self.value[item])
+
         elif isinstance(item, str):
             assert item in self.dims
             return self.index[item]
+
         elif isinstance(item, tuple):
             assert len(item) == 2
+
             if isinstance(item[0], str):
+                # Filtering by dimension values
                 dim = item[0]
                 condition = item[1]
                 assert dim in self.dims
                 assert isinstance(condition, (list, np.ndarray, slice))
+
                 index_items_on_dim = self.index[dim]
                 if isinstance(condition, (list, np.ndarray)):
+                    # Use boolean mask for efficient filtering
                     mask = np.isin(index_items_on_dim, condition)
-                    return Long(index={dim_: self.index[dim_][mask] for dim_ in self.dims}, value=self.value[mask])
+                    return Long(index={dim_: self.index[dim_][mask] for dim_ in self.dims},
+                               value=self.value[mask])
+
                 elif isinstance(condition, slice):
                     assert issubclass(index_items_on_dim.dtype.type, (np.int16, np.int32, np.int64))
                     start = condition.start or int(np.min(index_items_on_dim))
                     step = condition.step or 1
-                    stop = condition.stop or int(
-                        np.max(index_items_on_dim) + step)
+                    stop = condition.stop or int(np.max(index_items_on_dim) + step)
                     arange_condition = np.arange(start, stop, step)
                     mask = np.isin(index_items_on_dim, arange_condition)
-                    return Long(index={dim_: self.index[dim_][mask] for dim_ in self.dims}, value=self.value[mask])
+                    return Long(index={dim_: self.index[dim_][mask] for dim_ in self.dims},
+                               value=self.value[mask])
+
             elif isinstance(item[0], list):
+                # Reordering dimensions
                 reorder = item[0]
                 assert set(self.dims) == set(reorder)
                 assert isinstance(item[1], slice)
+
                 condition = item[1]
                 start = condition.start or 0
                 stop = condition.stop or self.value.size
                 step = condition.step or 1
                 arange_condition = np.arange(start, stop, step)
-                return Long(index={dim_: self.index[dim_][arange_condition] for dim_ in reorder}, value=self.value[arange_condition])
+
+                return Long(index={dim_: self.index[dim_][arange_condition] for dim_ in reorder},
+                           value=self.value[arange_condition])
 
     def __eq__(self, other: Union['Long', float, int, np.generic]) -> Union[bool, np.ndarray]:
         """
@@ -632,12 +656,13 @@ class Long:
             ```
         """
         if isinstance(other, Long):
-            dims_equal = tuple(self.dims) == tuple(other.dims)
-            if not dims_equal:
+            # Check dimensions, values, and indices
+            if tuple(self.dims) != tuple(other.dims):
                 return False
-            value_equal = np.array_equal(self.value, other.value)
-            if not value_equal:
+
+            if not np.array_equal(self.value, other.value):
                 return False
+
             return all(np.array_equal(self.index[dim], other.index[dim]) for dim in self.dims)
         else:
             if np.isnan(other):
@@ -676,12 +701,15 @@ class Long:
             ```
         """
         if isinstance(other, Long):
-            dims_equal = tuple(self.dims) == tuple(other.dims)
-            if not dims_equal:
+            # Faster dimension check
+            if tuple(self.dims) != tuple(other.dims):
                 return True
-            value_equal = np.array_equal(self.value, other.value)
-            if not value_equal:
+
+            # Value array check
+            if not np.array_equal(self.value, other.value):
                 return True
+
+            # Index equality check
             return not all(np.array_equal(self.index[dim], other.index[dim]) for dim in self.dims)
         else:
             if np.isnan(other):
@@ -845,32 +873,20 @@ class Long:
         data['value'] = self.value
         return pd.DataFrame(data=data)
 
-
 class Array:
     def __init__(self, data: Union[Tuple[dict, Union[np.ndarray, List[float], List[int], List[bool]]], Long, np.ndarray, 'sp.COO', None] = None, coords: Union[Dict[str, Union[np.ndarray, List[str], List[int], List[float], List[np.datetime64]]], None] = None) -> None:
         """
         Initialize an Array object.
 
         Args:
-            data: The data for the Array object. It can be a tuple of index and value, a Long object, a dense numpy array, a sparse COO array, or None.
+            data: The data for the Array object. It can be a tuple of index and value, a Long object,
+                 a dense numpy array, a sparse COO array, or None.
             coords: A dictionary representing the coordinates of the Array object.
-
-        Example:
-            ```python
-            >>> long = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
-            >>> coords = {'dim1': ['a', 'b'], 'dim2': [1, 2]}
-            >>> arr = Array(data=long, coords=coords)
-            >>> arr
-            Array(data=array([[10,  0],
-                   [ 0, 20]]), coords={'dim1': array(['a', 'b'], dtype=object), 'dim2': array([1, 2])})
-
-            ```
         """
-        self.__dict__["_repo"] = {}
-        self.long = None
-        self.coords = None
-        self.dense = None
-        self.sparse = None
+        # Initialize the repository for lazy-loaded properties
+        self._repo = {}
+
+        # Load settings
         self.data_type = settings.data_type
         self.keep_zeros = settings.keep_zeros
         self.sort_coords = settings.sort_coords
@@ -882,80 +898,85 @@ class Array:
         self.dataframe_as = settings.dataframe_as
         self.gpu_backend = settings.gpu_backend
         self.gpu_backend_device = settings.gpu_backend_device
+
+        # Process input data
         self._attr_constructor(**self._check_input(data, coords))
+
         return None
 
-    def _check_input(self, data: Union[Tuple[dict, Union[np.ndarray, List[float], List[int], List[bool]]], Long, np.ndarray, 'sp.COO', None], coords: Union[Dict[str, Union[np.ndarray, List[str], List[int], List[float], List[np.datetime64]]], None]) -> Union[Tuple[dict, Union[np.ndarray, List[float], List[int], List[bool]]], Long, np.ndarray, 'sp.COO', None]:
+    def _check_input(self, data: Union[Tuple[dict, Union[np.ndarray, List[float], List[int], List[bool]]], Long, np.ndarray, 'sp.COO', None], coords: Union[Dict[str, Union[np.ndarray, List[str], List[int], List[float], List[np.datetime64]]], None]) -> Dict:
         """
-        Check the input for the Array object.
+        Check and process the input data and coordinates.
 
         Args:
-            data: The data for the Array object. It can be a tuple of index and value, a Long object, a dense numpy array, a sparse COO array, or None.
-            coords: A dictionary representing the coordinates of the Array object.
+            data: The input data.
+            coords: The coordinates.
 
         Returns:
-            A tuple of index and value, a Long object, a dense numpy array, a sparse COO array, or None.
-
-        Raises:
-            AssertionError: If the input data or coordinates are invalid.
+            A dictionary with validated data components.
         """
+        # Validate input types
         assert data is None or isinstance(data, (tuple, Long, np.ndarray)) or _isinstance_optional_pkgs(
             data, 'sp.COO'), f"Invalid type for 'data': {type(data)}"
         assert coords is None or isinstance(
             coords, dict), f"Invalid type for 'coords': {type(coords)}"
+
+        # Initialize result containers
+        long = None
+        index = None
+        value = None
+        dense = None
+        sparse = None
+
+        # Process different input data types
         if isinstance(data, Long):
-            long: Union[Long, None] = data
-            index: Union[dict, None] = None
-            value: Union[np.ndarray, None] = None
-            dense: Union[np.ndarray, None] = None
-            sparse: Union['sp.COO', None] = None
+            long = data
         elif isinstance(data, tuple):
-            long: Union[Long, None] = None
-            index: Union[dict, None] = data[0]
-            value: Union[np.ndarray, None] = data[1]
-            dense: Union[np.ndarray, None] = None
-            sparse: Union['sp.COO', None] = None
+            index, value = data
         elif isinstance(data, np.ndarray):
-            long: Union[Long, None] = None
-            index: Union[dict, None] = None
-            value: Union[np.ndarray, None] = None
-            dense: Union[np.ndarray, None] = data
-            sparse: Union['sp.COO', None] = None
+            dense = data
             assert coords is not None
         elif _isinstance_optional_pkgs(data, 'sp.COO'):
-            long: Union[Long, None] = None
-            index: Union[dict, None] = None
-            value: Union[np.ndarray, None] = None
-            dense: Union[np.ndarray, None] = None
-            sparse: Union['sp.COO', None] = data
+            sparse = data
         else:
-            long: Union[Long, None] = None
-            index: Union[dict, None] = None
-            value: Union[np.ndarray, None] = None
-            dense: Union[np.ndarray, None] = None
-            sparse: Union['sp.COO', None] = None
+            # None or other - must have coords
             assert coords is not None
+
+        # Further validation for tuple input
         if isinstance(data, tuple):
-            assert isinstance(index, dict), "Index must be a dictionary. "
+            assert isinstance(index, dict), "Index must be a dictionary"
             for dim in index:
-                assert isinstance(
-                    dim, str), "Index must be a dictionary with string keys"
-                assert isinstance(index[dim], (list, np.ndarray)) or _isinstance_optional_pkgs(index[dim], ('pd.DatetimeIndex', 'pd.Categorical')
-                                                                                               ), "Index must be a dictionary with string keys and list, np.ndarray, pd.DatetimeIndex or pd.Categorical values"
-                index[dim] = _test_type_and_update(index[dim])
-            value = _test_type_and_update_value(value)
+                assert isinstance(dim, str), "Index must have string keys"
+                assert isinstance(index[dim], (list, np.ndarray)) or _isinstance_optional_pkgs(
+                    index[dim], ('pd.DatetimeIndex', 'pd.Categorical')), \
+                    "Index values must be list, np.ndarray, pd.DatetimeIndex or pd.Categorical"
+
+                # Only convert if not already a numpy array
+                if not isinstance(index[dim], np.ndarray):
+                    index[dim] = _test_type_and_update(index[dim])
+
+            # Only convert value if needed
+            if not isinstance(value, np.ndarray):
+                value = _test_type_and_update_value(value)
+
+        # Process and validate coords
         if coords is not None:
             assert isinstance(coords, dict), "coords must be a dictionary"
-            assert all([isinstance(coords[dim], (np.ndarray, list)) or _isinstance_optional_pkgs(coords[dim], ('pd.DatetimeIndex', 'pd.Categorical'))
-                       for dim in coords]), "coords must contains list, np.ndarray values"
+            assert all([isinstance(coords[dim], (np.ndarray, list)) or _isinstance_optional_pkgs(
+                coords[dim], ('pd.DatetimeIndex', 'pd.Categorical'))
+                for dim in coords]), "coords must contain list, np.ndarray, pd.DatetimeIndex or pd.Categorical values"
+
             cdims = list(coords)
             for dim in cdims:
-                assert isinstance(
-                    dim, str), "coords must be a dictionary with string keys"
-                coords[dim] = _test_type_and_update(coords[dim])
+                assert isinstance(dim, str), "coords must have string keys"
+                # Only convert if not already a numpy array
+                if not isinstance(coords[dim], np.ndarray):
+                    coords[dim] = _test_type_and_update(coords[dim])
                 assert coords[dim].ndim == 1
                 assert coords[dim].size == np.unique(
                     coords[dim]).size, f"coords elements of dim '{dim}' must be unique. {coords[dim].size=}, {np.unique(coords[dim]).size=}"
+
+            # Validate consistency between data and coords
             if long is not None:
                 assert set(long.dims) == set(list(coords))
             elif index is not None:
@@ -982,113 +1003,206 @@ class Array:
             index: The index of the array.
             value: The value of the array.
             coords: The coordinates of the array.
-
-        Returns:
-            None
         """
+        # Initialize with None values to avoid circular dependencies
+        self._repo['long'] = None
+        self._repo['dense'] = None
+        self._repo['sparse'] = None
+        self._repo['coords'] = None
+
+        # CASE 1: Long object provided
         if long is not None:
             if coords is not None:
                 if len(coords) == 0:
                     assert long.ndim == 0
-                    self.coords = self._reorder_coords(
+                    self._repo['coords'] = self._reorder_coords(
                         coords, self.order, self.sort_coords)
-                    self.long = self._reorder_long(
-                        long, list(self.coords), self.keep_zeros)
+                    self._repo['long'] = self._reorder_long(
+                        long, list(self._repo['coords']), self.keep_zeros)
                 else:
-                    self.coords = self._reorder_coords(
+                    self._repo['coords'] = self._reorder_coords(
                         coords, self.order, self.sort_coords)
-                    self.long = self._reorder_long(
-                        long, list(self.coords), self.keep_zeros)
+                    self._repo['long'] = self._reorder_long(
+                        long, list(self._repo['coords']), self.keep_zeros)
             else:
-                coords = {dim: np.sort(
+                # Create coords from long's index
+                coords_dict = {dim: np.sort(
                     np.unique(long.index[dim])) for dim in long.dims}
-                self.coords = self._reorder_coords(
-                    coords, self.order, self.sort_coords)
-                self.long = self._reorder_long(
-                    long, list(self.coords), self.keep_zeros)
+                self._repo['coords'] = self._reorder_coords(
+                    coords_dict, self.order, self.sort_coords)
+                self._repo['long'] = self._reorder_long(
+                    long, list(self._repo['coords']), self.keep_zeros)
+
+        # CASE 2: Tuple of (index, value) provided
         elif index is not None:
             if value is None:
                 raise Exception(
                     "If 'index' is not None, then 'value' must be provided. Currently 'value' is None")
             else:
                 if coords is not None:
-                    self.coords = self._reorder_coords(
+                    self._repo['coords'] = self._reorder_coords(
                         coords, self.order, self.sort_coords)
-                    assert set(self.coords) == set(index)
-                    index = {dim: index[dim] for dim in self.coords}
-                    long = Long(index=index, value=value)
-                    self.long = self._reorder_long(
-                        long, list(self.coords), self.keep_zeros)
+                    assert set(self._repo['coords']) == set(index)
+                    # Use existing arrays
+                    index_dict = {dim: index[dim] for dim in self._repo['coords']}
+                    new_long = Long(index=index_dict, value=value)
+                    self._repo['long'] = self._reorder_long(
+                        new_long, list(self._repo['coords']), self.keep_zeros)
                 else:
-                    coords = {dim: np.sort(
+                    # Create coords from index
+                    coords_dict = {dim: np.sort(
                         np.unique(index[dim])) for dim in index}
-                    self.coords = self._reorder_coords(
-                        coords, self.order, self.sort_coords)
-                    index = {dim: index[dim] for dim in self.coords}
-                    long = Long(index=index, value=value)
-                    self.long = self._reorder_long(
-                        long, list(self.coords), self.keep_zeros)
+                    self._repo['coords'] = self._reorder_coords(
+                        coords_dict, self.order, self.sort_coords)
+                    index_dict = {dim: index[dim] for dim in self._repo['coords']}
+                    new_long = Long(index=index_dict, value=value)
+                    self._repo['long'] = self._reorder_long(
+                        new_long, list(self._repo['coords']), self.keep_zeros)
+
+        # CASE 3: Dense numpy array provided
         elif dense is not None:
             assert coords is not None
+
+            # Check if order matches desired order
             if tuple(self._order_with_preference(list(coords), self.order)) == tuple(list(coords)):
                 if self.sort_coords:
-                    self.coords = self._reorder_coords(
+                    self._repo['coords'] = self._reorder_coords(
                         coords, self.order, self.sort_coords)
-                    long = self._dense_to_long(dense, coords)
-                    self.dense = self._dense(long, self.coords)
-                    self.long = self._reorder_long(
-                        long, list(self.coords), self.keep_zeros)
-                else:
-                    self.coords = coords
+                    # Store dense array directly
                     if issubclass(dense.dtype.type, (np.int64, np.int32, np.int16)):
-                        dense = dense.astype(float)
-                    self.long = self._dense_to_long(dense, coords)
-                    self.dense = dense
+                        self._repo['dense'] = dense.astype(float)
+                    else:
+                        self._repo['dense'] = dense
+                    # Long will be created on-demand when needed
+                else:
+                    self._repo['coords'] = coords
+                    # Convert integer types to float
+                    if issubclass(dense.dtype.type, (np.int64, np.int32, np.int16)):
+                        self._repo['dense'] = dense.astype(float)
+                    else:
+                        self._repo['dense'] = dense
+                    # Long will be created on-demand when needed
             else:
-                self.coords = self._reorder_coords(
+                self._repo['coords'] = self._reorder_coords(
                     coords, self.order, self.sort_coords)
-                long = self._dense_to_long(dense, coords)
-                self.dense = self._dense(long, self.coords)
-                self.long = self._reorder_long(
-                    long, list(self.coords), self.keep_zeros)
+                # We need to create a Long object to handle the reordering
+                temp_long = self._dense_to_long(dense, coords)
+                self._repo['dense'] = self._dense(temp_long, self._repo['coords'])
+                self._repo['long'] = self._reorder_long(
+                    temp_long, list(self._repo['coords']), self.keep_zeros)
+
+        # CASE 4: Sparse COO array provided
         elif sparse is not None:
             assert coords is not None
+
+            # Check if order matches desired order
             if tuple(self._order_with_preference(list(coords), self.order)) == tuple(list(coords)):
                 if self.sort_coords:
-                    self.coords = self._reorder_coords(
+                    self._repo['coords'] = self._reorder_coords(
                         coords, self.order, self.sort_coords)
-                    long = self._sparse_to_long(sparse, coords)
-                    self.sparse = self._sparse(long, self.coords)
-                    self.long = self._reorder_long(
-                        long, list(self.coords), self.keep_zeros)
+                    # We need to create a Long object to handle the reordering
+                    temp_long = self._sparse_to_long(sparse, coords)
+                    self._repo['sparse'] = self._sparse(temp_long, self._repo['coords'])
+                    self._repo['long'] = self._reorder_long(
+                        temp_long, list(self._repo['coords']), self.keep_zeros)
                 else:
-                    self.coords = coords
-                    self.sparse = sparse
-                    self.long = self._sparse_to_long(sparse, coords)
+                    self._repo['coords'] = coords
+                    self._repo['sparse'] = sparse
+                    # Long will be created on-demand when needed
             else:
-                self.coords = self._reorder_coords(
+                self._repo['coords'] = self._reorder_coords(
                     coords, self.order, self.sort_coords)
-                long = self._sparse_to_long(sparse, coords)
-                self.sparse = self._sparse(long, self.coords)
-                self.long = self._reorder_long(
-                    long, list(self.coords), self.keep_zeros)
+                # We need to create a Long object to handle the reordering
+                temp_long = self._sparse_to_long(sparse, coords)
+                self._repo['sparse'] = self._sparse(temp_long, self._repo['coords'])
+                self._repo['long'] = self._reorder_long(
+                    temp_long, list(self._repo['coords']), self.keep_zeros)
+
+        # CASE 5: Empty array
         else:
+            # Empty array case
             if value is None:
                 assert value is None and index is None and coords is not None
-                self.coords = self._reorder_coords(
+                self._repo['coords'] = self._reorder_coords(
                     coords, self.order, self.sort_coords)
-                dtypes = {dim: self.coords[dim].dtype.type for dim in coords}
+
+                dtypes = {dim: self._repo['coords'][dim].dtype.type for dim in coords}
                 if len(coords) == 0:
-                    long = Long(index={}, value=np.array([], dtype=float))
-                    self.long = long
+                    # Empty array with no dimensions
+                    empty_long = Long(index={}, value=np.array([], dtype=float))
+                    self._repo['long'] = empty_long
                 else:
-                    long = Long(index={dim: np.array([], dtype=dtypes[dim])
-                                for dim in self.coords}, value=np.array([], dtype=float))
-                    self.long = long
+                    # Empty array with dimensions
+                    empty_long = Long(
+                        index={dim: np.array([], dtype=dtypes[dim]) for dim in self._repo['coords']},
+                        value=np.array([], dtype=float)
+                    )
+                    self._repo['long'] = empty_long
             else:
                 raise Exception(
                     "If 'value' is not None, then 'index' must be provided. Currently 'index' is None")
-        return None
+
+    @property
+    def coords(self):
+        return self._repo['coords']
+
+    @property
+    def long(self):
+        # Create Long on demand
+        if self._repo['long'] is None:
+            if self._repo['dense'] is not None:
+                self._repo['long'] = self._dense_to_long(self._repo['dense'], self._repo['coords'])
+            elif self._repo['sparse'] is not None:
+                self._repo['long'] = self._sparse_to_long(self._repo['sparse'], self._repo['coords'])
+            else:
+                raise ValueError("Cannot create Long - no data available")
+        return self._repo['long']
+
+    @property
+    def dense(self):
+        # Create dense array on demand
+        if self._repo['dense'] is None:
+            if self._repo['long'] is not None:
+                self._repo['dense'] = self._dense(self._repo['long'], self._repo['coords'])
+            elif self._repo['sparse'] is not None:
+                # Convert from sparse directly
+                sparse_data = self._repo['sparse']
+                if self.dense_dtype is not None:
+                    dense_array = sparse_data.todense().astype(self.dense_dtype)
+                else:
+                    dense_array = sparse_data.todense()
+                self._repo['dense'] = dense_array
+            else:
+                raise ValueError("Cannot create dense array - no data available")
+        return self._repo['dense']
+
+    @property
+    def sparse(self):
+        # Create sparse array on demand
+        if self._repo['sparse'] is None:
+            if self._repo['long'] is not None:
+                self._repo['sparse'] = self._sparse(self._repo['long'], self._repo['coords'])
+            elif self._repo['dense'] is not None:
+                # Convert from dense directly
+                dense_data = self._repo['dense']
+                if self.sparse_dtype is not None:
+                    sparse_array = sp.COO.from_numpy(dense_data).astype(self.sparse_dtype)
+                else:
+                    sparse_array = sp.COO.from_numpy(dense_data)
+                self._repo['sparse'] = sparse_array
+            else:
+                raise ValueError("Cannot create sparse array - no data available")
+        return self._repo['sparse']
+
+    @property
+    def data(self):
+        if self.data_type == 'sparse':
+            return self.sparse
+        elif self.data_type == 'dense':
+            return self.dense
+        else:
+            raise ValueError(f"data_type must be 'sparse' or 'dense', not {self.data_type}")
+
 
     def __repr__(self) -> str:
         """
@@ -1113,7 +1227,7 @@ class Array:
         Return an HTML representation of the Array object.
 
         Returns:
-            An HTML string representation of the Array object.
+            An HTML string representation.
         """
         html = [
             '<details><table><summary><div class="tooltip"> Show unique coords</div></summary>']
@@ -1168,10 +1282,14 @@ class Array:
             ```
         """
         order = self._order_with_preference(list(coords), order_preference)
+
+        # Create new coords dictionary with minimal copying
         if sort_coords:
             coords_ = {dim: np.sort(coords[dim]) for dim in order}
         else:
+            # Reuse arrays directly
             coords_ = {dim: coords[dim] for dim in order}
+
         return coords_
 
     def _reorder_long(self, long: Long, order: List[str], keep_zeros: bool) -> Long:
@@ -1198,51 +1316,46 @@ class Array:
             ```
         """
         long = long[order, :]
+
+        # Filter non-zero values if needed
         return long if keep_zeros else long[long != 0.0]
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        """
-        Set an attribute of the Array object.
+    def __setattr__(self, name, value):
+        # Special handling for _repo to avoid recursion
+        if name == '_repo':
+            super().__setattr__(name, value)
+            return
 
-        Args:
-            name: The name of the attribute.
-            value: The value to set for the attribute.
-
-        Returns:
-            None
-
-        Example:
-            ```python
-            >>> long = Long(index={'dim1': ['a', 'b'], 'dim2': [1, 2]}, value=[10, 20])
-            >>> coords = {'dim1': np.array(['a', 'b']), 'dim2': np.array([1, 2])}
-            >>> arr = Array(data=long, coords=coords)
-            >>> arr.dense_dtype = 'float32'
-
-            ```
-        """
         if name == "dense":
             if value is not None and self.dense_dtype is not None:
                 if issubclass(value.dtype.type, (np.float16, np.float32, np.float64)):
-                    assert self.dense_dtype in [
-                        "float16", "float32", "float64"]
+                    assert self.dense_dtype in ["float16", "float32", "float64"]
                     value = value.astype(self.dense_dtype)
+            self._repo['dense'] = value
         elif name == "sparse":
             if value is not None and self.sparse_dtype is not None:
                 if issubclass(value.dtype.type, (np.float16, np.float32, np.float64)):
-                    assert self.sparse_dtype in [
-                        "float16", "float32", "float64"]
+                    assert self.sparse_dtype in ["float16", "float32", "float64"]
                     value = value.astype(self.sparse_dtype)
+            self._repo['sparse'] = value
+        elif name == "long":
+            self._repo['long'] = value
+        elif name == "coords":
+            self._repo['coords'] = value
         elif name == "dense_dtype":
             if value is not None:
                 assert value in ["float16", "float32", "float64"]
-                self._repo['dense'] = self._repo['dense'].astype(
-                    value) if self._repo['dense'] is not None else None
+                if 'dense' in self._repo and self._repo['dense'] is not None:
+                    self._repo['dense'] = self._repo['dense'].astype(value)
+            super().__setattr__(name, value)
         elif name == "sparse_dtype":
             if value is not None:
                 assert value in ["float16", "float32", "float64"]
-                self._repo['sparse'] = self._repo['sparse'].astype(
-                    value) if self._repo['sparse'] is not None else None
-        self._repo[name] = value
+                if 'sparse' in self._repo and self._repo['sparse'] is not None:
+                    self._repo['sparse'] = self._repo['sparse'].astype(value)
+            super().__setattr__(name, value)
+        else:
+            super().__setattr__(name, value)
 
     def __getattr__(self, name: str) -> Any:
         """
@@ -1269,9 +1382,12 @@ class Array:
         """
         if name.startswith('_'):
             raise AttributeError(name)
+
+        # Lazy loading for core properties
         elif name == 'long':
             if name in self._repo:
                 if self._repo[name] is None:
+                    # Create Long on demand
                     assert self.data is not None
                     if self.data_type == 'sparse':
                         self._repo[name] = self._sparse_to_long(
@@ -1286,6 +1402,7 @@ class Array:
                 else:
                     return self._repo[name]
             else:
+                # Create Long on demand
                 assert self.data is not None
                 if self.data_type == 'sparse':
                     self._repo[name] = self._sparse_to_long(
@@ -1297,27 +1414,33 @@ class Array:
                     raise ValueError(
                         f"data_type must be 'sparse' or 'dense', not {self.data_type}")
                 return self._repo[name]
+
         elif name == 'dense':
             if name in self._repo:
                 if self._repo[name] is None:
+                    # Create dense array on demand
                     assert self.long is not None
                     self._repo[name] = self._dense(self.long, self.coords)
                     return self._repo[name]
                 else:
                     return self._repo[name]
             else:
+                # Create dense array on demand
                 assert self.long is not None
                 self._repo[name] = self._dense(self.long, self.coords)
                 return self._repo[name]
+
         elif name == 'sparse':
             if name in self._repo:
                 if self._repo[name] is None:
+                    # Create sparse array on demand
                     assert self.long is not None
                     self._repo[name] = self._sparse(self.long, self.coords)
                     return self._repo[name]
                 else:
                     return self._repo[name]
             else:
+                # Create sparse array on demand
                 assert self.long is not None
                 self._repo[name] = self._sparse(self.long, self.coords)
                 return self._repo[name]
@@ -1458,6 +1581,7 @@ class Array:
         if len(self.coords) == 0:
             yield from ()
         else:
+            # Calculate all coordinate indices efficiently
             arrays = np.unravel_index(np.arange(self._capacity(self.coords)), self._shape(self.coords))
             for dim, idx in zip(self.coords, arrays):
                 yield dim, self.coords[dim][idx]
@@ -1491,7 +1615,7 @@ class Array:
         Determine the filler value and data type based on the Long object and fill_missing value.
 
         Args:
-            long: The Long object.
+            long_value: The value array from the Long object.
             fill_missing: The value to use for missing elements.
 
         Returns:
@@ -1510,29 +1634,23 @@ class Array:
             dtype = long_value.dtype
             if np.isnan(fill_missing) or np.isinf(fill_missing):
                 filler = fill_missing
-            elif isinstance(fill_missing, float):
-                filler = fill_missing
-            elif isinstance(fill_missing, (int, bool)):
+            elif isinstance(fill_missing, (float, int, bool)):
                 filler = float(fill_missing)
             else:
                 raise TypeError("fill_missing must be a float, int or bool")
+
         elif issubclass(long_value.dtype.type, (np.int16, np.int32, np.int64)):
             dtype = long_value.dtype
-            if np.isnan(fill_missing) or np.isinf(fill_missing):
-                filler = fill_missing
-                dtype = float
-            elif isinstance(fill_missing, float):
+            if np.isnan(fill_missing) or np.isinf(fill_missing) or isinstance(fill_missing, float):
                 filler = fill_missing
                 dtype = float
             elif isinstance(fill_missing, int):
                 filler = fill_missing
             elif isinstance(fill_missing, bool):
-                if fill_missing is True:
-                    filler = 1
-                else:
-                    filler = 0
+                filler = 1 if fill_missing else 0
             else:
                 raise TypeError("fill_missing must be a float, int or bool")
+
         elif issubclass(long_value.dtype.type, np.bool_):
             dtype = long_value.dtype
             if np.isnan(fill_missing) or np.isinf(fill_missing):
@@ -1561,6 +1679,7 @@ class Array:
         else:
             raise TypeError(
                 f"long_value type is not recognized. Currently {fill_missing=} and {long_value.dtype=} and {long_value.dtype.type=}")
+
         return filler, dtype
 
     def _dense(self, long: Long, coords: Dict[str, np.ndarray]) -> np.ndarray:
@@ -1587,19 +1706,28 @@ class Array:
         """
         if len(coords) == 0:
             return long.value
+
+        # Calculate indices efficiently
         long_stack = np.vstack([np.argsort(coords[dim])[np.searchsorted(
             coords[dim], long.index[dim], sorter=np.argsort(coords[dim]))] for dim in coords])
+
         shape = self._shape(coords)
         indexes = np.ravel_multi_index(long_stack, shape)
+
         # Check for duplicate indexes
-        self._check_duplicate_indexes(
-            indexes, dims=list(coords.keys()), coords=coords)
+        self._check_duplicate_indexes(indexes, dims=list(coords.keys()), coords=coords)
+
         capacity = self._capacity(coords)
         filler, dtype = self._filler_and_dtype(long.value, self.fill_value)
+
+        # Create dense array efficiently
         flatten_dense = np.empty((capacity,), dtype=dtype)
         flatten_dense[:] = filler
         flatten_dense[indexes] = long.value.astype(dtype)
-        nd_dense = flatten_dense.view().reshape(shape)
+
+        # Reshape without copying data
+        nd_dense = flatten_dense.reshape(shape)
+
         return nd_dense
 
     def _dense_to_long(self, dense: np.ndarray, coords: Dict[str, np.ndarray]) -> Long:
@@ -1626,13 +1754,32 @@ class Array:
         """
         if issubclass(dense.dtype.type, (np.int16, np.int32, np.int64)):
             dense = dense.astype(float)
+
         if len(coords) == 0 and dense.ndim == 1:
             return Long(index={}, value=dense)
-        arrays = np.unravel_index(
-            np.arange(self._capacity(coords)), self._shape(coords))
+
+        # Calculate indices efficiently
+        arrays = np.unravel_index(np.arange(self._capacity(coords)), self._shape(coords))
         index = {dim: coords[dim][idx] for dim, idx in zip(coords, arrays)}
-        long = Long(index=index, value=dense.reshape(dense.size))
-        return self._reorder_long(long, list(coords), self.keep_zeros)
+
+        # Extract values without unnecessary copies
+        if self.keep_zeros:
+            long = Long(index=index, value=dense.reshape(-1))
+        else:
+            # Create a flattened view
+            flat_dense = dense.reshape(-1)
+            # Find non-zero values
+            mask = flat_dense != 0
+            if not np.any(mask):
+                # All zeros - return empty Long
+                return Long(index={dim: np.array([], dtype=index[dim].dtype) for dim in index},
+                           value=np.array([], dtype=dense.dtype))
+            else:
+                # Filter to only non-zero values
+                filtered_index = {dim: index[dim][mask] for dim in index}
+                return Long(index=filtered_index, value=flat_dense[mask])
+
+        return long if self.keep_zeros else long[long != 0.0]
 
     def _sparse(self, long: Long, coords: Dict[str, np.ndarray]) -> 'sp.COO':
         """
@@ -1657,13 +1804,20 @@ class Array:
         """
         if len(coords) == 0:
             return sp.COO(data=long.value, coords=[0], shape=(1,))
+
+        # Calculate indices efficiently
         long_stack = np.vstack([np.argsort(coords[dim])[np.searchsorted(
             coords[dim], long.index[dim], sorter=np.argsort(coords[dim]))] for dim in coords])
+
         shape = self._shape(coords)
         indexes = np.ravel_multi_index(long_stack, shape)
+
         # Check for duplicate indexes
         self._check_duplicate_indexes(indexes, dims=list(coords.keys()), coords=coords)
+
         filler, dtype = self._filler_and_dtype(long.value, self.fill_value)
+
+        # Create sparse array directly
         return sp.COO(coords=long_stack, data=long.value.astype(dtype), shape=shape, fill_value=filler)
 
     def _sparse_to_long(self, sparse: 'sp.COO', coords: Dict[str, np.ndarray]) -> Long:
@@ -1716,10 +1870,17 @@ class Array:
         assert reorder is not None, "order must be provided"
         assert set(reorder) == set(
             self_long.dims), "order must be equal to self.dims, the order can be different, though"
+
         if tuple(self_long.dims) == tuple(reorder):
+            # No reordering needed
             return dict(data=self_long, coords=self_coords)
+
+        # Create new coords dictionary with minimal copying
         coords = {k: self_coords[k] for k in reorder}
+
+        # Reorder Long object
         long = self_long[reorder, :]
+
         return dict(data=long, coords=coords)
 
     def reorder(self, reorder: List[str] = None) -> 'Array':
@@ -1756,29 +1917,27 @@ class Array:
 
         Returns:
             The ordered list of dimensions.
-
-        Example:
-            ```python
-            >>> dims = ['dim1', 'dim2', 'dim3']
-            >>> preferred_order = ['dim2', 'dim3']
-            >>> Array._order_with_preference(dims, preferred_order)
-            ['dim2', 'dim3', 'dim1']
         """
         if preferred_order is None:
             return dims
         else:
+            # Create ordered list using preferred order
             ordered = []
             disordered = dims[:]
+
             for dim in preferred_order:
                 if dim in disordered:
                     ordered.append(dim)
                     disordered.remove(dim)
+
+            # Add remaining dimensions
             ordered.extend(disordered)
+
             return ordered
 
     def _union_dims(self, other: 'Array', preferred_order: List[str] = None) -> List[str]:
         """
-        Find the union of dimensions between two arrays. It also performs several checks to ensure the union is valid to perform mathematical operations between arrays.
+        Find the union of dimensions between two arrays.
 
         Args:
             other: The other array to find the union with.
@@ -1802,37 +1961,49 @@ class Array:
         """
         if set(self.dims) == set(other.dims):
             return self._order_with_preference(self.dims, preferred_order)
+
         elif len(self.dims) == 0 or len(other.dims) == 0:
             for obj in [self, other]:
                 if len(obj.dims) > 0:
                     dims = obj.dims
             return self._order_with_preference(dims, preferred_order)
+
         elif len(set(self.dims).symmetric_difference(set(other.dims))) > 0:
             common_dims = set(self.dims).intersection(set(other.dims))
             assert len(common_dims) > 0, "At least one dimension must be common"
-            uncommon_dims = set(
-                self.dims).symmetric_difference(set(other.dims))
+
+            uncommon_dims = set(self.dims).symmetric_difference(set(other.dims))
             uncommon_self = [dim for dim in self.dims if dim in uncommon_dims]
-            uncommon_other = [
-                dim for dim in other.dims if dim in uncommon_dims]
+            uncommon_other = [dim for dim in other.dims if dim in uncommon_dims]
+
             assert not all([len(uncommon_self) > 0, len(uncommon_other) > 0]
                            ), f"It is not allowed to have both arrays with uncommon dims. You can apply .expand in one array before performing this operation. {uncommon_self=} {uncommon_other=}"
+
+            # Use preferred order if provided
             unordered = list(set(self.dims).union(set(other.dims)))
-            semi_ordered = self._order_with_preference(
-                unordered, preferred_order)
+            semi_ordered = self._order_with_preference(unordered, preferred_order)
+
             ordered_common = []
             if preferred_order is None:
+                # No preference, just combine common and uncommon
                 dims = list(common_dims) + list(uncommon_dims)
                 return dims
             else:
+                # Use preferred order for common dimensions
                 for dim in preferred_order:
                     if dim in common_dims:
                         ordered_common.append(dim)
                         common_dims.remove(dim)
+
+                # Add remaining common dimensions
                 ordered_common.extend(common_dims)
+
+                # Remove processed dimensions from semi-ordered list
                 for dim in ordered_common:
                     if dim in semi_ordered:
                         semi_ordered.remove(dim)
+
+                # Combine ordered common and semi-ordered
                 ordered = ordered_common + semi_ordered
                 return ordered
 
@@ -1863,58 +2034,64 @@ class Array:
 
             ```
         """
-
         coords = {}
         self_coords_bool = []
         other_coords_bool = []
+
         for dim in uniondims:
             if dim in self.coords:
                 if dim in other.coords:
+                    # Both arrays have this dimension
                     if self.coords[dim].size == other.coords[dim].size:
-                        if all(self.coords[dim] == other.coords[dim]):
+                        if np.array_equal(self.coords[dim], other.coords[dim]):
+                            # Same coordinates
                             self_coords_bool.append(True)
                             other_coords_bool.append(True)
-                            coords[dim] = self.coords[dim]
+                            coords[dim] = self.coords[dim]  # Reuse existing array
                         else:
-                            coords[dim] = np.union1d(
-                                self.coords[dim], other.coords[dim])
-                            if coords[dim].size == self.coords[dim].size:
-                                if all(coords[dim] == self.coords[dim]):
-                                    self_coords_bool.append(True)
-                                else:
-                                    self_coords_bool.append(False)
+                            # Different coordinates
+                            coords[dim] = np.union1d(self.coords[dim], other.coords[dim])
+
+                            # Check if union is identical to either array's coords
+                            if coords[dim].size == self.coords[dim].size and np.array_equal(coords[dim], self.coords[dim]):
+                                self_coords_bool.append(True)
                             else:
                                 self_coords_bool.append(False)
-                            if coords[dim].size == other.coords[dim].size:
-                                if all(coords[dim] == other.coords[dim]):
-                                    other_coords_bool.append(True)
-                                else:
-                                    other_coords_bool.append(False)
+
+                            if coords[dim].size == other.coords[dim].size and np.array_equal(coords[dim], other.coords[dim]):
+                                other_coords_bool.append(True)
                             else:
                                 other_coords_bool.append(False)
                     elif set(self.coords[dim]).issubset(set(other.coords[dim])):
+                        # Self is subset of other
                         self_coords_bool.append(False)
                         other_coords_bool.append(True)
-                        coords[dim] = other.coords[dim]
+                        coords[dim] = other.coords[dim]  # Reuse other's array
                     elif set(other.coords[dim]).issubset(set(self.coords[dim])):
+                        # Other is subset of self
                         self_coords_bool.append(True)
                         other_coords_bool.append(False)
-                        coords[dim] = self.coords[dim]
+                        coords[dim] = self.coords[dim]  # Reuse self's array
                     else:
+                        # Overlapping or disjoint sets
                         self_coords_bool.append(False)
                         other_coords_bool.append(False)
-                        coords[dim] = np.union1d(
-                            self.coords[dim], other.coords[dim])
+                        coords[dim] = np.union1d(self.coords[dim], other.coords[dim])
                 else:
+                    # Only self has this dimension
                     self_coords_bool.append(True)
-                    coords[dim] = self.coords[dim]
+                    coords[dim] = self.coords[dim]  # Reuse self's array
             elif dim in other.coords:
+                # Only other has this dimension
                 other_coords_bool.append(True)
-                coords[dim] = other.coords[dim]
+                coords[dim] = other.coords[dim]  # Reuse other's array
             else:
                 raise Exception(f"Dimension {dim} not found in either arrays")
+
+        # Check if all dimensions match for each array
         self_coords_bool_ = all(self_coords_bool)
         other_coords_bool_ = all(other_coords_bool)
+
         return (self_coords_bool_, other_coords_bool_, coords)
 
     def _get_raw_dense(self, uniondims: List[str], unioncoords: Dict[str, np.ndarray], coords_bool: bool) -> np.ndarray:
@@ -1944,13 +2121,17 @@ class Array:
             ```
         """
         self_dims = [d for d in uniondims if d in self.dims]
+
         if coords_bool:
             if tuple(self.dims) == tuple(self_dims):
-                self_raw_dense = self.dense
-                return self_raw_dense
+                # Coordinates match and dimensions match - use existing dense array
+                return self.dense
+
+        # Create coords dictionary for self dimensions
         self_coords = {d: unioncoords[d] for d in self_dims}
-        self_raw_dense = self._dense(self.long, self_coords)
-        return self_raw_dense
+
+        # Convert to dense array
+        return self._dense(self.long, self_coords)
 
     def _get_raw_sparse(self, uniondims: List[str], unioncoords: Dict[str, np.ndarray], coords_bool: bool) -> 'sp.COO':
         """
@@ -1978,13 +2159,17 @@ class Array:
             ```
         """
         self_dims = [d for d in uniondims if d in self.dims]
+
         if coords_bool:
             if tuple(self.dims) == tuple(self_dims):
-                self_raw_sparse = self.sparse
-                return self_raw_sparse
+                # Coordinates match and dimensions match - use existing sparse array
+                return self.sparse
+
+        # Create coords dictionary for self dimensions
         self_coords = {d: unioncoords[d] for d in self_dims}
-        self_raw_sparse = self._sparse(self.long, self_coords)
-        return self_raw_sparse
+
+        # Convert to sparse array
+        return self._sparse(self.long, self_coords)
 
     def _pre_operation_with_array(self, other: 'Array') -> Tuple[Union[np.ndarray, 'sp.COO'], Union[np.ndarray, 'sp.COO'], Dict[str, np.ndarray]]:
         """
@@ -2012,32 +2197,40 @@ class Array:
             ```
         """
         uniondims = self._union_dims(other, preferred_order=self.order)
+
+        # Find union of coordinates
         self_coords_bool, other_coords_bool, unioncoords = self._union_coords(
             other, uniondims)
+
+        # Prepare arrays based on data type
         if self.data_type == "sparse" and other.data_type == "sparse":
             self_raw_sparse = self._get_raw_sparse(
                 uniondims, unioncoords, self_coords_bool)
             other_raw_sparse = other._get_raw_sparse(
                 uniondims, unioncoords, other_coords_bool)
             return self_raw_sparse.T, other_raw_sparse.T, unioncoords
+
         elif self.data_type == "dense" and other.data_type == "dense":
             self_raw_dense = self._get_raw_dense(
                 uniondims, unioncoords, self_coords_bool)
             other_raw_dense = other._get_raw_dense(
                 uniondims, unioncoords, other_coords_bool)
             return self_raw_dense.T, other_raw_dense.T, unioncoords
+
         elif self.data_type == "sparse" and other.data_type == "dense":
             self_raw_sparse = self._get_raw_sparse(
                 uniondims, unioncoords, self_coords_bool)
             other_raw_sparse = other._get_raw_sparse(
                 uniondims, unioncoords, other_coords_bool)
             return self_raw_sparse.T, other_raw_sparse.T, unioncoords
+
         elif self.data_type == "dense" and other.data_type == "sparse":
             self_raw_dense = self._get_raw_dense(
                 uniondims, unioncoords, self_coords_bool)
             other_raw_dense = other._get_raw_dense(
                 uniondims, unioncoords, other_coords_bool)
             return self_raw_dense.T, other_raw_dense.T, unioncoords
+
         else:
             raise Exception("data_type must be 'sparse' or 'dense'")
 
@@ -2070,6 +2263,7 @@ class Array:
         """
         if len(coords) == 0:
             return Array(data=({}, resulting_array), coords={})
+
         return Array(data=resulting_array, coords=coords)
 
     def _operation(self, self_array: Union[np.ndarray, 'sp.COO', 'cp.ndarray', 'torch.Tensor'], other_array: Union[np.ndarray, 'sp.COO', 'cp.ndarray', 'torch.Tensor'], operation: str) -> Union[np.ndarray, 'sp.COO']:
@@ -2087,27 +2281,40 @@ class Array:
         if isinstance(self_array, np.ndarray) and isinstance(other_array, np.ndarray):
             if self.gpu_backend is not None:
                 if self.gpu_backend == 'cupy':
+                    # Use GPU with CuPy
                     mempool = cp.get_default_memory_pool()
                     with cp.cuda.Device(self.gpu_backend_device):
-                        self_array = cp.array(self_array)
-                        other_array = cp.array(other_array)
-                        result = getattr(self_array, operation)(other_array)
+                        cp_self_array = cp.array(self_array)
+                        cp_other_array = cp.array(other_array)
+                        result = getattr(cp_self_array, operation)(cp_other_array)
                         np_array = result.get()
-                    del result, self_array, other_array
+
+                    # Free GPU memory
+                    del result, cp_self_array, cp_other_array
                     mempool.free_all_blocks()
+
                     return np_array
+
                 elif self.gpu_backend == 'pytorch':
+                    # Use GPU with PyTorch
                     with torch.cuda.device(self.gpu_backend_device):
-                        self_array = torch.tensor(self_array)
-                        other_array = torch.tensor(other_array)
-                        result = getattr(self_array, operation)(other_array)
+                        torch_self_array = torch.tensor(self_array)
+                        torch_other_array = torch.tensor(other_array)
+                        result = getattr(torch_self_array, operation)(torch_other_array)
                         np_array = result.cpu().numpy()
-                        del result, self_array, other_array
+
+                        # Free GPU memory
+                        del result, torch_self_array, torch_other_array
+
                     return np_array
             else:
+                # Use CPU
                 return getattr(self_array, operation)(other_array)
+
         elif isinstance(self_array, sp.COO) and isinstance(other_array, sp.COO):
+            # Use sparse arrays
             return getattr(self_array, operation)(other_array)
+
         else:
             raise Exception("Invalid data type for 'data' property")
 
@@ -2139,9 +2346,12 @@ class Array:
             ```
         """
         if isinstance(other, (int, float)):
+            # Add scalar
             arr = self.data + other
             return self._post_operation(arr, self.coords)
+
         elif isinstance(other, Array):
+            # Add arrays
             self_arr, other_arr, coords = self._pre_operation_with_array(other)
             arr = self._operation(self_arr, other_arr, '__add__')
             return self._post_operation(arr.T, coords)
@@ -2174,9 +2384,12 @@ class Array:
             ```
         """
         if isinstance(other, (int, float)):
+            # Multiply by scalar
             arr = self.data * other
             return self._post_operation(arr, self.coords)
+
         elif isinstance(other, Array):
+            # Multiply arrays
             self_arr, other_arr, coords = self._pre_operation_with_array(other)
             arr = self._operation(self_arr, other_arr, '__mul__')
             return self._post_operation(arr.T, coords)
@@ -2209,9 +2422,12 @@ class Array:
             ```
         """
         if isinstance(other, (int, float)):
+            # Subtract scalar
             arr = self.data - other
             return self._post_operation(arr, self.coords)
+
         elif isinstance(other, Array):
+            # Subtract arrays
             self_arr, other_arr, coords = self._pre_operation_with_array(other)
             arr = self._operation(self_arr, other_arr, '__sub__')
             return self._post_operation(arr.T, coords)
@@ -2244,9 +2460,12 @@ class Array:
             ```
         """
         if isinstance(other, (int, float)):
+            # Divide by scalar
             arr = self.data / other
             return self._post_operation(arr, self.coords)
+
         elif isinstance(other, Array):
+            # Divide arrays
             self_arr, other_arr, coords = self._pre_operation_with_array(other)
             arr = self._operation(self_arr, other_arr, '__truediv__')
             return self._post_operation(arr.T, coords)
@@ -3901,18 +4120,24 @@ class Array:
 
             ```
         """
-        if not np.unique(indexes).size == indexes.size:
-            count_repeated = np.bincount(indexes)
-            duplicate_indexes = np.where(count_repeated > 1)[0]
-            repeated = []
-            arrays = np.unravel_index(indexes, self._shape(coords))
-            index_dict = {dim: coords[dim][idx]
-                          for dim, idx in zip(coords, arrays)}
-            for i in duplicate_indexes:
-                repeated.append({'loc': {dim: index_dict[dim][np.argmax(
-                    indexes == i)] for dim in dims}, 'count': count_repeated[i]})
-            raise ValueError(
-                f"The Long object contains duplicate indexes. Duplicate indexes are: {repeated}.")
+        # Fast path - check if all indexes are unique
+        if np.unique(indexes).size == indexes.size:
+            return
+
+        # Slow path - find and report duplicates
+        count_repeated = np.bincount(indexes)
+        duplicate_indexes = np.where(count_repeated > 1)[0]
+
+        # Find coordinates of duplicates
+        repeated = []
+        arrays = np.unravel_index(indexes, self._shape(coords))
+        index_dict = {dim: coords[dim][idx]
+                        for dim, idx in zip(coords, arrays)}
+        for i in duplicate_indexes:
+            repeated.append({'loc': {dim: index_dict[dim][np.argmax(
+                indexes == i)] for dim in dims}, 'count': count_repeated[i]})
+        raise ValueError(
+            f"The Long object contains duplicate indexes. Duplicate indexes are: {repeated}.")
 
 
 def concat(arrays: List[Array]) -> Array:
