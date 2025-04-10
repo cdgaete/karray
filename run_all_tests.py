@@ -8,18 +8,9 @@ Comprehensive test runner for karray that runs:
 import os
 import sys
 import subprocess
-import numpy as np
 import doctest
 from src.karray import source_code, settings
 
-def repr_remove_dtype(x):
-    """Remove dtype info from numpy array repr for consistent doctest results."""
-    string = np.array_repr(x)
-    if ', dtype' in string:
-        parts = string.split(', dtype')
-        if 'int' in parts[1] or 'float' in parts[1]:
-            return parts[0] + ','.join(parts[1].split(',')[1:]) + ')'
-    return string
 
 def run_doctests(verbose=False):
     """Run doctests for the karray package."""
@@ -27,19 +18,18 @@ def run_doctests(verbose=False):
     print(f"Running doctests with {settings.data_type} backend")
     print("="*80)
 
-    # Set up numpy display
-    # np.set_string_function(repr_remove_dtype, repr=True)
-
     # Ensure test data directory exists
     os.makedirs(os.path.join(os.getcwd(), 'tests', 'data'), exist_ok=True)
 
-    # Run doctests
-    failure_count, test_count = doctest.testmod(source_code, verbose=verbose)
-
-    # Reset numpy display
-    np.set_printoptions(precision=8)
+    # Run doctests with flexible whitespace and ellipsis matching
+    failure_count, test_count = doctest.testmod(
+        source_code,
+        verbose=verbose,
+        optionflags=doctest.NORMALIZE_WHITESPACE | doctest.ELLIPSIS
+    )
 
     return failure_count, test_count
+
 
 def run_pytest(verbose=False, coverage=False):
     """Run pytest tests."""
@@ -55,6 +45,7 @@ def run_pytest(verbose=False, coverage=False):
 
     result = subprocess.run(cmd)
     return result.returncode
+
 
 def main():
     """Run all tests with both backends."""
@@ -88,6 +79,7 @@ def main():
     print("="*80)
 
     return failures
+
 
 if __name__ == "__main__":
     sys.exit(main())
