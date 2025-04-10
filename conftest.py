@@ -1,5 +1,5 @@
 import pytest
-from karray import settings
+from src.karray import settings
 
 def pytest_addoption(parser):
     parser.addoption(
